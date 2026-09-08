@@ -1,4 +1,3 @@
-# Reference copy: the node's startup script applies the version that governs the cluster.
 apiVersion: source.toolkit.fluxcd.io/v1
 kind: GitRepository
 metadata:

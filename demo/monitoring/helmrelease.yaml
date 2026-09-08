@@ -8,7 +8,6 @@ spec:
   chart:
     spec:
       chart: prometheus
-      # TODO before first apply: pin to the current prometheus-community/prometheus version.
       version: "25.24.0"
       sourceRef:
         kind: HelmRepository
