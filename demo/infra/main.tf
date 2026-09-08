@@ -60,7 +60,7 @@ resource "google_compute_region_instance_group_manager" "demo" {
 
   # k3s's datastore and the PVCs live on the boot disk, so a preemption would wipe Prometheus.
   stateful_disk {
-    device_name = "boot"
+    device_name = "persistent-disk-0"
     delete_rule = "NEVER"
   }
 
