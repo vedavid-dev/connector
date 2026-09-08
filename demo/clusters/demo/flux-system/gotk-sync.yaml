@@ -1,0 +1,24 @@
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/vedavid-dev/vedavid-connector
+  ref:
+    # Semver, so only a tag push reaches the cluster.
+    semver: ">=0.1.0 <1.0.0"
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./demo/clusters/demo
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: vedavid-demo

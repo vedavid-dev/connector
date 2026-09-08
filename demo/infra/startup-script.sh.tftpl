@@ -1,0 +1,65 @@
+#!/bin/bash
+set -euo pipefail
+
+# Reruns on every boot against a disk that survives preemption, so every step is a no-op.
+
+if ! command -v curl >/dev/null 2>&1; then
+  apt-get update
+  apt-get install -y --no-install-recommends curl ca-certificates
+fi
+
+# The version check just avoids invoking the installer on an ordinary reboot.
+if ! /usr/local/bin/k3s --version 2>/dev/null | head -1 | grep -qF "${k3s_version}"; then
+  curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${k3s_version}" sh -s - server \
+    --disable traefik \
+    --disable servicelb \
+    --write-kubeconfig-mode 0600
+fi
+systemctl enable --now k3s
+
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+echo "waiting for the node to report Ready"
+until /usr/local/bin/k3s kubectl get nodes --no-headers 2>/dev/null | awk '{print $2}' | grep -qx Ready; do
+  sleep 5
+done
+
+if ! command -v flux >/dev/null 2>&1; then
+  curl -sfL https://fluxcd.io/install.sh | bash
+fi
+
+# The node must never hold a repo write credential, which bootstrap would need.
+/usr/local/bin/flux install \
+  --components=source-controller,kustomize-controller,helm-controller,notification-controller
+
+# Applied every boot so a semver bump lands on the next reboot; Flux owns the rest.
+cat <<'GOTK_SYNC' | /usr/local/bin/k3s kubectl apply -f -
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: ${git_repository_url}
+  ref:
+    semver: "${flux_semver}"
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./demo/clusters/demo
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: vedavid-demo
+GOTK_SYNC
+
+# The boot disk is long-lived, so nothing else refreshes the OS.
+apt-get update
+apt-get install -y --no-install-recommends unattended-upgrades
+dpkg-reconfigure -f noninteractive unattended-upgrades
