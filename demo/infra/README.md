@@ -103,7 +103,6 @@ this file.
 ## Not done here
 
 - The connector Deployment (`demo/connector/`) and the image it would run —
-  deferred; see the spec.
-- The demo-cluster spec's identity/CI rework and the enrollment-token
-  Secret — both belong to the private root module that calls this one, not
-  here.
+  deferred.
+- The identity/CI rework and the enrollment-token Secret — both belong to
+  the private root module that calls this one.

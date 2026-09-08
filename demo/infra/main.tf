@@ -15,8 +15,6 @@ resource "google_compute_instance_template" "demo" {
   network_interface {
     network = "default"
     access_config {
-      # No nat_ip: ephemeral by choice, not oversight — see network.tf's
-      # data source comment and this module's README.
     }
   }
 
@@ -46,11 +44,7 @@ resource "google_compute_instance_template" "demo" {
   }
 }
 
-# Spot mandates automatic_restart = false: a preempted standalone instance
-# has nothing to recover it. A regional MIG both recovers it and, being
-# regional rather than zonal, can place the replacement in whichever zone
-# still has Spot capacity — materially improving recovery time over a
-# zonal group when one zone is out.
+# Spot preemption needs the group to recreate the node, in whichever zone has capacity.
 resource "google_compute_region_instance_group_manager" "demo" {
   name               = "vedavid-demo"
   project            = var.project
@@ -64,22 +58,13 @@ resource "google_compute_region_instance_group_manager" "demo" {
     instance_template = google_compute_instance_template.demo.self_link
   }
 
-  # k3s's sqlite datastore and local-path's PVC directories both live on the
-  # boot disk. Without this, the disk is recreated from the image on every
-  # preemption and Prometheus loses its entire history, not just a gap.
+  # k3s's datastore and the PVCs live on the boot disk, so a preemption would wipe Prometheus.
   stateful_disk {
     device_name = "boot"
     delete_rule = "NEVER"
   }
 
-  # No autohealing health check: a MIG already recreates an instance that
-  # isn't RUNNING, which is exactly the preemption case. A health check
-  # would need a port opened to Google's probe ranges for no added coverage.
-
-  # Stateful MIGs reject PROACTIVE — this is the only legal value, not a
-  # preference. Roll a template change with `gcloud compute
-  # instance-groups managed update-instances`; `rolling-action replace`
-  # triggers a proactive rollout and fails here.
+  # A stateful MIG rejects PROACTIVE, so a template change rolls with update-instances.
   update_policy {
     type                         = "OPPORTUNISTIC"
     minimal_action               = "REPLACE"

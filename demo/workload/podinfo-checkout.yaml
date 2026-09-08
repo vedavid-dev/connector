@@ -1,7 +1,3 @@
-# One of four podinfo deployments standing in for distinct services (spec
-# §9) — checkout, catalog, payments, frontend share this same shape with
-# different names/replica counts/ports, so they don't look identical to
-# someone browsing the cluster.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,8 +19,7 @@ spec:
     spec:
       containers:
         - name: podinfo
-          # TODO before first apply: bump to the current podinfo release
-          # (https://github.com/stefanprodan/podinfo/releases).
+          # TODO before first apply: bump to the current podinfo release.
           image: ghcr.io/stefanprodan/podinfo:6.7.1
           ports:
             - containerPort: 9898

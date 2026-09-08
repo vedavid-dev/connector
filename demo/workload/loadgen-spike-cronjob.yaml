@@ -1,6 +1,4 @@
-# A visible spike every few hours (spec §9), so a user opening the app at a
-# random time has a decent chance of seeing something happen, not just the
-# loadgen Deployment's steady sine-modulated baseline.
+# A visible spike every few hours, so the app shows something happening at a random time.
 apiVersion: batch/v1
 kind: CronJob
 metadata:

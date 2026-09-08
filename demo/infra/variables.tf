@@ -1,6 +1,3 @@
-# The three a reader must supply. No defaults, deliberately: a value here
-# would be one this module's author chose for their own project, not the
-# caller's.
 variable "project" {
   description = "GCP project the demo cluster runs in"
   type        = string
@@ -17,7 +14,7 @@ variable "node_service_account_email" {
 }
 
 variable "machine_type" {
-  description = "e2-medium is the sizing spec §11 budgets against; changing it invalidates that budget"
+  description = "Node size the cost estimate assumes; changing it invalidates that estimate"
   type        = string
   default     = "e2-medium"
 }

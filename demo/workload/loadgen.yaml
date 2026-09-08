@@ -1,9 +1,4 @@
-# Continuous traffic against the four podinfo services (spec §9): a
-# sine-modulated baseline so both a 1-hour and a 24-hour view show shape,
-# plus a low-rate exercise of podinfo's /delay, /status, /panic endpoints
-# so latency histograms have spread and the error rate is non-zero but not
-# alarming. The sine period is compressed to ~5 minutes (not a literal day)
-# so the shape is visible without waiting one.
+# The sine period is ~5 minutes, so a 1-hour view already shows shape.
 apiVersion: v1
 kind: ConfigMap
 metadata:
