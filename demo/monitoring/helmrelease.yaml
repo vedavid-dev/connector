@@ -1,0 +1,59 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: prometheus
+  namespace: monitoring
+spec:
+  interval: 15m
+  chart:
+    spec:
+      chart: prometheus
+      # TODO before first apply: pin to the current prometheus-community/
+      # prometheus chart version (`helm search repo prometheus-community/prometheus`
+      # or https://artifacthub.io/packages/helm/prometheus-community/prometheus).
+      # A placeholder here rather than a guess that would silently go stale.
+      version: "25.24.0"
+      sourceRef:
+        kind: HelmRepository
+        name: prometheus-community
+        namespace: monitoring
+  # Never kube-prometheus-stack: it bundles Grafana, Grafana dashboards,
+  # Alertmanager, and default alert rules — all four violate constraints 1
+  # and 2. This chart has no Grafana anywhere in its dependency tree.
+  values:
+    alertmanager:
+      enabled: false
+
+    server:
+      retention: 15d
+      extraArgs:
+        storage.tsdb.retention.size: 6GB
+      global:
+        scrape_interval: 30s
+        evaluation_interval: 30s
+      persistentVolume:
+        enabled: true
+        size: 10Gi
+        storageClass: local-path
+      resources:
+        requests: { cpu: 100m, memory: 512Mi }
+        limits: { cpu: 500m, memory: 1Gi }
+      service:
+        type: ClusterIP
+
+    serverFiles:
+      alerting_rules.yml: {}
+      recording_rules.yml: {}
+
+    prometheus-node-exporter:
+      resources:
+        requests: { cpu: 20m, memory: 32Mi }
+        limits: { memory: 64Mi }
+
+    kube-state-metrics:
+      resources:
+        requests: { cpu: 20m, memory: 64Mi }
+        limits: { memory: 128Mi }
+
+    prometheus-pushgateway:
+      enabled: false

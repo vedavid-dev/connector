@@ -1,0 +1,37 @@
+# A visible spike every few hours (spec §9), so a user opening the app at a
+# random time has a decent chance of seeing something happen, not just the
+# loadgen Deployment's steady sine-modulated baseline.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: loadgen-spike
+  namespace: workload
+spec:
+  schedule: "0 */4 * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 180
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: spike
+              image: curlimages/curl:8.10.1
+              command: ["/bin/sh", "-c"]
+              args:
+                - |
+                  set -eu
+                  end=$(($(date +%s) + 60))
+                  while [ "$(date +%s)" -lt "$end" ]; do
+                    for name in checkout catalog payments frontend; do
+                      for _ in 1 2 3 4 5; do
+                        curl -s -o /dev/null -m 3 "http://$name.workload.svc.cluster.local:9898/" &
+                      done
+                    done
+                    wait
+                  done
+              resources:
+                requests: { cpu: 20m, memory: 16Mi }
+                limits: { memory: 32Mi }

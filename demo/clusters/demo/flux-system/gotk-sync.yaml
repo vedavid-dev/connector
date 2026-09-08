@@ -1,0 +1,31 @@
+# Reference copy only — nothing reads this file. The node's startup script
+# (demo/infra/startup-script.sh.tftpl) templates and applies the version
+# that actually governs the running cluster, from var.git_repository_url
+# and var.flux_semver. Keep this in sync with those defaults by hand; it
+# exists so a reader can see what Flux is tracking without reading Terraform.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: https://github.com/vedavid-dev/vedavid-connector
+  ref:
+    # A branch is deliberately not an option: with `branch: main`, a merge
+    # to this repo would change the running demo cluster within a minute,
+    # no review gesture involved. A tag push is that gesture instead.
+    semver: ">=0.1.0 <1.0.0"
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./demo/clusters/demo
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: vedavid-demo

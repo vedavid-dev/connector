@@ -21,6 +21,10 @@
             # required for tonic-prost-build
             pkgs.protobuf
             pkgs.prometheus
+            # for demo/infra and demo/clusters
+            pkgs.opentofu
+            pkgs.kubectl
+            pkgs.fluxcd
           ];
 
           env = {

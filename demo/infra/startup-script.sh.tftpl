@@ -1,0 +1,82 @@
+#!/bin/bash
+set -euo pipefail
+
+# Reruns on every boot, against a disk that may already have k3s installed,
+# a populated datastore, and existing PVC directories (network.tf's stateful
+# boot disk survives Spot preemption). Every step below must be a no-op on a
+# disk that already has it, not a reset.
+
+if ! command -v curl >/dev/null 2>&1; then
+  apt-get update
+  apt-get install -y --no-install-recommends curl ca-certificates
+fi
+
+# --- k3s ---
+# The installer itself only reruns the install when the requested version
+# differs from what's on disk; the version check here just avoids invoking
+# it at all on the common case (an ordinary reboot, no template change).
+if ! /usr/local/bin/k3s --version 2>/dev/null | head -1 | grep -qF "${k3s_version}"; then
+  curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION="${k3s_version}" sh -s - server \
+    --disable traefik \
+    --disable servicelb \
+    --write-kubeconfig-mode 0600
+fi
+systemctl enable --now k3s
+
+export KUBECONFIG=/etc/rancher/k3s/k3s.yaml
+
+echo "waiting for the node to report Ready"
+until /usr/local/bin/k3s kubectl get nodes --no-headers 2>/dev/null | awk '{print $2}' | grep -qx Ready; do
+  sleep 5
+done
+
+# --- Flux CLI ---
+if ! command -v flux >/dev/null 2>&1; then
+  curl -sfL https://fluxcd.io/install.sh | bash
+fi
+
+# `flux install`, not `flux bootstrap`: bootstrap commits flux-system/ back
+# to the repo, which needs write access this node must never hold. install
+# only renders the controllers below into the cluster, no repo credential,
+# no repo write. Re-applying is a no-op reconcile when already current.
+/usr/local/bin/flux install \
+  --components=source-controller,kustomize-controller,helm-controller,notification-controller
+
+# The one write path that matters, applied idempotently every boot so a
+# template change (e.g. a semver bump) lands on the next reboot without a
+# human touching the running cluster by hand. Everything past this point —
+# Prometheus, the demo workload — is Flux's job, reconciled from the public
+# repo at whatever tag matches flux_semver, never from this script again.
+cat <<'GOTK_SYNC' | /usr/local/bin/k3s kubectl apply -f -
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: GitRepository
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 1m
+  url: ${git_repository_url}
+  ref:
+    semver: "${flux_semver}"
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: vedavid-demo
+  namespace: flux-system
+spec:
+  interval: 10m
+  path: ./demo/clusters/demo
+  prune: true
+  sourceRef:
+    kind: GitRepository
+    name: vedavid-demo
+GOTK_SYNC
+
+# --- OS patching ---
+# The boot disk is long-lived (stateful_disk in main.tf), so it no longer
+# gets refreshed by image replacement. unattended-upgrades is the
+# consequence spec §5 calls for instead of a deliberate disk-recreate.
+apt-get update
+apt-get install -y --no-install-recommends unattended-upgrades
+dpkg-reconfigure -f noninteractive unattended-upgrades

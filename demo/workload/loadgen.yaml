@@ -1,0 +1,85 @@
+# Continuous traffic against the four podinfo services (spec §9): a
+# sine-modulated baseline so both a 1-hour and a 24-hour view show shape,
+# plus a low-rate exercise of podinfo's /delay, /status, /panic endpoints
+# so latency histograms have spread and the error rate is non-zero but not
+# alarming. The sine period is compressed to ~5 minutes (not a literal day)
+# so the shape is visible without waiting one.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: loadgen-script
+  namespace: workload
+data:
+  loadgen.sh: |
+    #!/bin/sh
+    set -eu
+
+    services="checkout:5 catalog:8 payments:3 frontend:12"
+
+    hit() {
+      # Best-effort: a slow or erroring backend must not stall the loop.
+      curl -s -o /dev/null -m 3 "$1" || true
+    }
+
+    i=0
+    while true; do
+      i=$((i + 1))
+      now=$(date +%s)
+      mult=$(awk -v t="$now" 'BEGIN { printf "%.3f", 1 + 0.5 * sin(t / 300) }')
+
+      for entry in $services; do
+        name=${entry%%:*}
+        base=${entry#*:}
+        count=$(awk -v b="$base" -v m="$mult" 'BEGIN { c = b * m; printf "%d", (c < 1 ? 1 : c) }')
+        n=0
+        while [ "$n" -lt "$count" ]; do
+          hit "http://$name.workload.svc.cluster.local:9898/" &
+          n=$((n + 1))
+        done
+      done
+
+      # Every 20s, per service: one slow request, one 500, one panic — about
+      # 1-2% of total traffic in this window, matching the ~0.5-2% target.
+      if [ $((i % 20)) -eq 0 ]; then
+        for entry in $services; do
+          name=${entry%%:*}
+          hit "http://$name.workload.svc.cluster.local:9898/delay/2"
+          hit "http://$name.workload.svc.cluster.local:9898/status/500"
+          hit "http://$name.workload.svc.cluster.local:9898/panic"
+        done
+      fi
+
+      wait
+      sleep 1
+    done
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: loadgen
+  namespace: workload
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: loadgen
+  template:
+    metadata:
+      labels:
+        app: loadgen
+    spec:
+      containers:
+        - name: loadgen
+          image: curlimages/curl:8.10.1
+          command: ["/bin/sh", "/scripts/loadgen.sh"]
+          resources:
+            requests: { cpu: 20m, memory: 16Mi }
+            limits: { memory: 32Mi }
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: loadgen-script
+            defaultMode: 0555
