@@ -11,3 +11,4 @@ target
 result
 .terraform/
 .terraform.lock.hcl
+.DS_Store
