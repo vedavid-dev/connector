@@ -1,4 +1,4 @@
-# vedavid-connector
+# connector
 
 Answers PromQL queries from inside your cluster, over a connection it dials out.
 
