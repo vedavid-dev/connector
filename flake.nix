@@ -1,5 +1,5 @@
 {
-  description = "vedavid-connector development environment";
+  description = "connector development environment";
 
   inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
 

@@ -7,7 +7,7 @@ Run it in your own project like this:
 
 ```hcl
 module "demo" {
-  source = "git::https://github.com/vedavid-dev/vedavid-connector.git//demo/infra?ref=<tag or commit>"
+  source = "git::https://github.com/vedavid-dev/connector.git//demo/infra?ref=<tag or commit>"
 
   project                    = "your-project"
   zone                       = "europe-west1-b"

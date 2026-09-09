@@ -22,7 +22,7 @@ variable "machine_type" {
 variable "git_repository_url" {
   description = "Public HTTPS URL of this repository, cloned unauthenticated by both Flux and the node's one-time bootstrap"
   type        = string
-  default     = "https://github.com/vedavid-dev/vedavid-connector"
+  default     = "https://github.com/vedavid-dev/connector"
 }
 
 variable "flux_semver" {
