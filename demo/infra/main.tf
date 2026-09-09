@@ -64,6 +64,12 @@ resource "google_compute_region_instance_group_manager" "demo" {
     delete_rule = "NEVER"
   }
 
+  # k3s reads its node IP back off that disk, so a replacement must keep it.
+  stateful_internal_ip {
+    interface_name = "nic0"
+    delete_rule    = "NEVER"
+  }
+
   # A stateful MIG rejects PROACTIVE, so a template change rolls with update-instances.
   update_policy {
     type                         = "OPPORTUNISTIC"
