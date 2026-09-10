@@ -22,6 +22,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 thiserror = "2"
+# Pinned by commit: the crate is not published yet.
+vedavid-dashboard-dsl = { git = "https://github.com/vedavid-dev/dashboard-dsl", rev = "4a2ee083e56963c52da9fc13c4c60c970537fa19" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 

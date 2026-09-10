@@ -16,11 +16,65 @@ but the relay it talks to is not running anywhere yet.
 | `InstantQuery` | `/api/v1/query` |
 | `RangeQuery` | `/api/v1/query_range`, with the step derived from a point budget |
 | `Labels`, `LabelValues`, `Series` | the matching `/api/v1` endpoints |
+| `Events` | announces the dashboard inventory |
+| `DashboardDocument` | serves one compiled dashboard |
 
-`BatchQuery`, `Events`, `InstallCertificate` and `Drain` return
-`Unimplemented`. `Events` is the next one worth having: it is the stream the
-relay watches to notice a connector that has gone, and without it a dead tunnel
-is only discovered when a query fails.
+`BatchQuery`, `InstallCertificate` and `Drain` return `Unimplemented`. `Events`
+carries only the inventory so far — not the heartbeat that would let the relay
+notice a connector that has gone, so a dead tunnel is still only discovered
+when a query fails.
+
+## Dashboards
+
+Dashboards are the customer's own YAML, reviewed and rolled back like the rest
+of their code. They reach the connector as files, never through the Kubernetes
+API — `get`/`watch` on ConfigMaps would be a line item in a security review,
+and this connector holds no Kubernetes permissions at all.
+
+Each file is compiled with
+[`vedavid-dashboard-dsl`](https://github.com/vedavid-dev/dashboard-dsl) into a
+render tree, which is held in memory and announced to the relay.
+
+```
+VEDAVID_DASHBOARD_DIR    default /etc/vedavid/dashboards
+VEDAVID_CLUSTER_LABEL    shown in the app beside each dashboard
+```
+
+Two dashboards are compiled into the binary, so the app works on first install
+with no YAML written. A mounted file with the same `id` replaces the built-in
+of that name; the `id` comes from inside the document, never from the filename.
+
+### Mounting the ConfigMap
+
+Three constraints, each of which silently stops updates arriving:
+
+- **Mount the whole directory.** A `subPath` mount never receives updates.
+- **The ConfigMap must not be immutable.** Immutable ConfigMaps never update.
+- **A ConfigMap caps at about 1 MiB**, which is the real ceiling on how many
+  dashboards one connector can serve.
+
+The directory is re-read on a 30-second poll rather than watched: a ConfigMap
+update lands as an atomic symlink swap, which `inotify` on a file path misses,
+and kubelet's own propagation delay is larger than the poll interval anyway.
+
+### When a dashboard fails to compile
+
+Failure is per dashboard. One bad file does not disturb the others, and a
+dashboard that compiled before and fails now **keeps serving its last good
+render tree** — a bad merge must not take a working dashboard away.
+
+Each dashboard is announced as one of:
+
+| status | |
+| --- | --- |
+| `ok` | compiled |
+| `stale` | serving the last good tree; the newest source failed |
+| `failed` | never compiled, so there is nothing to serve |
+
+`stale` and `failed` carry the compiler's diagnostic, so the app can say what
+is wrong rather than only that something is. CI validates the same YAML, but
+CI's compiler and the deployed connector's compiler are two different programs
+at two different versions, so compile failures do reach production.
 
 ## Running it
 
