@@ -1,0 +1,8 @@
+apiVersion: v2
+name: vedavid-connector
+description: Answers PromQL queries from inside your cluster, over a connection it dials out
+type: application
+version: 0.1.0
+appVersion: "v0.3.0"
+sources:
+  - https://github.com/vedavid-dev/connector

@@ -60,6 +60,35 @@ jobs:
       - name: Tests
         run: cargo test
 
+  chart:
+    name: Helm chart
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: azure/setup-helm@v4
+
+      - name: Renders
+        run: helm template t charts/vedavid-connector > /tmp/rendered.yaml
+
+      # These two assertions are what keep the zero-permissions claim true.
+      - name: Grants no Kubernetes permissions
+        run: |
+          set -euo pipefail
+          ! grep -iE 'kind:[[:space:]]*(Cluster)?Role' /tmp/rendered.yaml
+          grep -q 'automountServiceAccountToken: false' /tmp/rendered.yaml
+
+      - name: Starts before any dashboard exists
+        run: |
+          set -euo pipefail
+          helm template t charts/vedavid-connector --set dashboards.sources=null > /tmp/empty.yaml
+          grep -q 'kind: Deployment' /tmp/empty.yaml
+          grep -q 'optional: true' /tmp/rendered.yaml
+
+      - name: Listens on nothing
+        run: |
+          set -euo pipefail
+          ! grep -qE '^kind: Service$|containerPort' /tmp/rendered.yaml
+
   image:
     name: Container image
     runs-on: ubuntu-latest
