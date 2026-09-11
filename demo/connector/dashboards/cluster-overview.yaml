@@ -1,0 +1,33 @@
+version: 1
+id: cluster-overview
+title: Cluster overview
+sections:
+  - title: Workloads
+    elements:
+      - type: stat
+        title: Pods running
+        query: sum(kube_pod_status_phase{phase="Running"})
+        unit: count
+      - type: stat
+        title: Pods waiting
+        query: sum(kube_pod_status_phase{phase="Pending"})
+        unit: count
+        thresholds:
+          direction: above
+          steps:
+            - { at: 1, level: warning }
+            - { at: 5, level: critical }
+      - type: line
+        title: Container restarts
+        query: sum(rate(kube_pod_container_status_restarts_total[15m]))
+        unit: ops_per_sec
+  - title: Node
+    elements:
+      - type: line
+        title: Load average
+        query: sum(node_load1)
+        unit: short
+      - type: line
+        title: Memory available
+        query: sum(node_memory_MemAvailable_bytes)
+        unit: bytes

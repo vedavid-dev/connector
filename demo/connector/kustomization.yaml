@@ -1,0 +1,15 @@
+namespace: vedavid
+
+resources:
+  - namespace.yaml
+  - helmrelease.yaml
+
+# A hashed name would not match what the chart mounts.
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: vedavid-dashboards
+    files:
+      # Each dashboard is listed: kustomize does not expand globs here.
+      - dashboards/cluster-overview.yaml

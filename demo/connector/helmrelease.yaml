@@ -1,0 +1,22 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: connector
+  namespace: vedavid
+spec:
+  interval: 15m
+  chart:
+    spec:
+      # The chart is in this repository, so no chart registry is involved.
+      chart: ./charts/vedavid-connector
+      sourceRef:
+        kind: GitRepository
+        name: vedavid-demo
+        namespace: flux-system
+  values:
+    clusterLabel: demo-k3s
+    prometheus:
+      url: http://prometheus-server.monitoring.svc.cluster.local
+    dashboards:
+      sources:
+        - configMap: vedavid-dashboards

@@ -31,14 +31,20 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
       # Nothing else checks that the chart and the generator agree on a name.
-      - name: The reference example generates the name the chart mounts
+      - name: Generated ConfigMap names match the name the chart mounts
         run: |
+          set -euo pipefail
           curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" \
             | tar xz -C /tmp
-          actual=$(/tmp/kustomize build examples/dashboards | awk '/^  name:/ {print $2; exit}')
-          echo "generated: $actual"
-          # Read this from the chart's dashboards.sources[0] once the chart exists.
-          test "$actual" = vedavid-dashboards
+          # An unchecked string on both sides: a mismatch is silent, and the
+          # connector serves built-ins alone.
+          mounted=$(grep -A1 'sources:' charts/vedavid-connector/values.yaml \
+            | awk '/configMap:/ {print $3; exit}')
+          for dir in examples/dashboards demo/connector; do
+            actual=$(/tmp/kustomize build "$dir" | awk '/^kind: ConfigMap/ {found=1} found && /^  name:/ {print $2; exit}')
+            echo "$dir generates $actual, the chart mounts $mounted"
+            test "$actual" = "$mounted"
+          done
 
       - name: Wait for the first scrape
         run: |
