@@ -1,0 +1,52 @@
+image:
+  repository: ghcr.io/vedavid-dev/connector
+  # Defaults to the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+
+relay:
+  address: api.vedavid.dev:8443
+  # The name checked against the relay's certificate. Defaults to the host above.
+  serverName: ""
+  # The Vedavid root. Override only to pin a different authority.
+  caCertificate: ""
+
+# Created out of band from the admin console; the chart never generates one.
+enrolment:
+  secretName: vedavid-enrolment-token
+  secretKey: token
+
+prometheus:
+  url: http://prometheus-server.monitoring.svc.cluster.local
+
+# Shown in the app beside each dashboard. A tenant with several clusters
+# cannot tell them apart without it.
+clusterLabel: ""
+
+dashboards:
+  enabled: true
+  path: /etc/vedavid/dashboards
+  pollSeconds: 30
+  # Vedavid's own dashboards, compiled into the binary.
+  builtins: true
+  # Projected into one directory, in order. A ConfigMap named here must exist
+  # under exactly this name, or the connector serves built-ins alone.
+  sources:
+    - configMap: vedavid-dashboards
+
+limits:
+  maxDashboards: 100
+  maxDashboardBytes: 262144
+  maxDirectoryBytes: 4194304
+
+resources:
+  requests:
+    cpu: 50m
+    memory: 64Mi
+  limits:
+    memory: 256Mi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
+podAnnotations: {}

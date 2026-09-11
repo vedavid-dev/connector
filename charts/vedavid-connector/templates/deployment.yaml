@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "connector.fullname" . }}
+  labels:
+    {{- include "connector.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "connector.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "connector.selectorLabels" . | nindent 8 }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    spec:
+      # The connector never calls the Kubernetes API, so it is given no way to.
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: connector
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: VEDAVID_RELAY_ADDR
+              value: {{ .Values.relay.address | quote }}
+            - name: VEDAVID_RELAY_SERVER_NAME
+              value: {{ include "connector.serverName" . | quote }}
+            - name: VEDAVID_RELAY_CA
+              value: /etc/vedavid/ca/root_ca.crt
+            - name: VEDAVID_ENROLMENT_TOKEN_FILE
+              value: /etc/vedavid/enrolment/{{ .Values.enrolment.secretKey }}
+            - name: VEDAVID_PROMETHEUS_URL
+              value: {{ .Values.prometheus.url | quote }}
+            - name: VEDAVID_CLUSTER_LABEL
+              value: {{ .Values.clusterLabel | quote }}
+            - name: VEDAVID_DASHBOARDS_ENABLED
+              value: {{ .Values.dashboards.enabled | quote }}
+            - name: VEDAVID_DASHBOARD_DIR
+              value: {{ .Values.dashboards.path | quote }}
+            - name: VEDAVID_DASHBOARD_POLL_SECONDS
+              value: {{ .Values.dashboards.pollSeconds | quote }}
+            - name: VEDAVID_DASHBOARD_BUILTINS
+              value: {{ .Values.dashboards.builtins | quote }}
+            {{- /* Counted against files found, so a mount that delivered
+                   nothing is visible rather than silent. */}}
+            - name: VEDAVID_DASHBOARD_SOURCES
+              value: {{ range $i, $s := .Values.dashboards.sources }}{{ if $i }},{{ end }}{{ $s.configMap | default $s.secret }}{{ end }}
+            - name: VEDAVID_MAX_DASHBOARDS
+              value: {{ .Values.limits.maxDashboards | quote }}
+            - name: VEDAVID_MAX_DASHBOARD_BYTES
+              value: {{ .Values.limits.maxDashboardBytes | quote }}
+            - name: VEDAVID_MAX_DIRECTORY_BYTES
+              value: {{ .Values.limits.maxDirectoryBytes | quote }}
+          volumeMounts:
+            - name: ca
+              mountPath: /etc/vedavid/ca
+              readOnly: true
+            - name: enrolment
+              mountPath: /etc/vedavid/enrolment
+              readOnly: true
+            {{- if .Values.dashboards.enabled }}
+            - name: dashboards
+              mountPath: {{ .Values.dashboards.path }}
+              readOnly: true
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: ca
+          configMap:
+            name: {{ include "connector.fullname" . }}-ca
+        - name: enrolment
+          secret:
+            secretName: {{ .Values.enrolment.secretName }}
+        {{- if .Values.dashboards.enabled }}
+        {{- /* Optional, so the pod starts before any dashboard is written. */}}
+        - name: dashboards
+          projected:
+            sources:
+              {{- range .Values.dashboards.sources }}
+              {{- if .configMap }}
+              - configMap:
+                  name: {{ .configMap }}
+                  optional: true
+              {{- else if .secret }}
+              - secret:
+                  name: {{ .secret }}
+                  optional: true
+              {{- end }}
+              {{- end }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

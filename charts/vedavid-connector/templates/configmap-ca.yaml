@@ -1,0 +1,10 @@
+{{/* The authority the connector checks the relay against. Public information. */}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "connector.fullname" . }}-ca
+  labels:
+    {{- include "connector.labels" . | nindent 4 }}
+data:
+  root_ca.crt: |
+{{ .Values.relay.caCertificate | default (.Files.Get "files/root_ca.crt") | indent 4 }}
