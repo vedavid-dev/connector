@@ -111,7 +111,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: ghcr.io/${{ github.repository_owner }}/vedavid-connector
           tags: type=ref,event=tag
 
       - uses: docker/build-push-action@v7

@@ -1,5 +1,5 @@
 image:
-  repository: ghcr.io/vedavid-dev/connector
+  repository: ghcr.io/vedavid-dev/vedavid-connector
   # Defaults to the chart's appVersion.
   tag: ""
   pullPolicy: IfNotPresent
