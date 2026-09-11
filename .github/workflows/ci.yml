@@ -28,6 +28,16 @@ jobs:
       - name: Install protoc
         run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
 
+      # Nothing else checks that the chart and the generator agree on a name.
+      - name: The reference example generates the name the chart mounts
+        run: |
+          curl -sSL "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.4.3/kustomize_v5.4.3_linux_amd64.tar.gz" \
+            | tar xz -C /tmp
+          actual=$(/tmp/kustomize build examples/dashboards | awk '/^  name:/ {print $2; exit}')
+          echo "generated: $actual"
+          # Read this from the chart's dashboards.sources[0] once the chart exists.
+          test "$actual" = vedavid-dashboards
+
       - name: Wait for the first scrape
         run: |
           for _ in $(seq 1 40); do

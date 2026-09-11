@@ -41,6 +41,7 @@ service Connector {
   rpc Series(SeriesRequest)             returns (SeriesResponse);
 
   rpc Events(EventsRequest)                         returns (stream ConnectorEvent);
+  rpc GetRenderTree(GetRenderTreeRequest)           returns (RenderTree);
   rpc InstallCertificate(InstallCertificateRequest) returns (InstallCertificateResponse);
   rpc Drain(DrainRequest)                           returns (DrainResponse);
 }
@@ -140,6 +141,7 @@ message ConnectorEvent {
     RenewalRequest renewal   = 2;
     UpstreamStatus upstream  = 3;
     QueryTelemetry telemetry = 4;
+    DashboardInventory inventory = 5;
   }
 }
 
@@ -175,3 +177,56 @@ message InstallCertificateResponse { google.protobuf.Timestamp not_after = 1; }
 
 message DrainRequest  { int32 reconnect_after_ms = 1; }
 message DrainResponse {}
+
+// Announced on connect and on every change, so the relay never polls.
+message DashboardInventory {
+  uint64 generation    = 1;  // monotonic per connector, ++ on every change
+  string cluster_label = 2;  // from the chart's values
+  repeated DashboardEntry entries = 3;
+  // Configured sources against files actually found: (1, 0) is a chart and a
+  // generator that disagree on a name, which is otherwise silent.
+  uint32 mounted_sources_seen = 4;
+  uint32 files_scanned        = 5;
+}
+
+message DashboardEntry {
+  string id     = 1;  // from the document, never the filename
+  string title  = 2;
+  string hash   = 3;  // of the render tree; changes iff the tree changes
+  DashboardSource source = 4;
+  uint32 schema = 5;  // render tree schema version
+  DashboardStatus status = 6;
+  repeated DashboardDiagnostic diagnostics = 7;
+  uint32 diagnostics_truncated = 8;
+}
+
+enum DashboardSource {
+  DASHBOARD_SOURCE_UNSPECIFIED = 0;
+  DASHBOARD_SOURCE_BUILTIN     = 1;
+  DASHBOARD_SOURCE_MOUNTED     = 2;
+}
+
+enum DashboardStatus {
+  DASHBOARD_STATUS_UNSPECIFIED = 0;
+  DASHBOARD_STATUS_OK          = 1;
+  DASHBOARD_STATUS_STALE       = 2;  // serving last-good; the latest source failed
+  DASHBOARD_STATUS_FAILED      = 3;  // never compiled; no render tree to serve
+}
+
+// The compiler's own diagnostic, passed through so a human sees what CI saw.
+message DashboardDiagnostic {
+  string code    = 1;  // "E-010"
+  string message = 2;
+  string path    = 3;  // "elements[0].query"
+}
+
+message GetRenderTreeRequest { string id = 1; }
+
+// Pulled on cache miss rather than pushed, so a tenant holding 100 dashboards
+// does not move 100 trees when a phone opens one.
+message RenderTree {
+  string id     = 1;
+  string hash   = 2;
+  uint32 schema = 3;
+  bytes  json   = 4;
+}

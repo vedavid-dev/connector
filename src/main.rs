@@ -1,4 +1,6 @@
+use std::sync::Arc;
 use tonic::transport::Server;
+use vedavid_connector::dashboards::{self, Dashboards};
 use vedavid_connector::enrol::{self, Bootstrap, Identity};
 use vedavid_connector::pb::connector_server::ConnectorServer;
 use vedavid_connector::pb::ConnectorBuild;
@@ -35,15 +37,39 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init();
 
     let upstream = env_or("VEDAVID_PROMETHEUS_URL", DEFAULT_PROMETHEUS);
+
+    // Built once, so reconnecting to the relay does not recompile anything.
+    let config = dashboards::Config::from_env();
+    if let Err(why) = config.validate() {
+        return Err(why.into());
+    }
+    if config.cluster_label.is_empty() {
+        tracing::warn!("no clusterLabel is set; the app cannot name this cluster");
+    }
+    let poll = config.poll;
+    let dir = config.path.clone();
+    let dashboards = Arc::new(Dashboards::new(config));
+    dashboards.scan();
+    tracing::info!(
+        dir = %dir.display(),
+        dashboards = dashboards.inventory().entries.len(),
+        "dashboards compiled"
+    );
+    tokio::spawn(dashboards::watch(dashboards.clone(), poll));
+
     match std::env::var("VEDAVID_RELAY_ADDR") {
-        Ok(relay) => tunnel_forever(&relay, &upstream).await,
-        Err(_) => listen_locally(&upstream).await,
+        Ok(relay) => tunnel_forever(&relay, &upstream, dashboards).await,
+        Err(_) => listen_locally(&upstream, dashboards).await,
     }
 }
 
 /// Enrol, dial, serve, repeat. A disconnection is routine: every relay deploy
 /// causes one.
-async fn tunnel_forever(relay: &str, upstream: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn tunnel_forever(
+    relay: &str,
+    upstream: &str,
+    dashboards: Arc<Dashboards>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let server_name = env_or(
         "VEDAVID_RELAY_SERVER_NAME",
         relay.split(':').next().unwrap_or(relay),
@@ -63,6 +89,7 @@ async fn tunnel_forever(relay: &str, upstream: &str) -> Result<(), Box<dyn std::
             &token_file,
             upstream,
             &mut identity,
+            dashboards.clone(),
         )
         .await
         {
@@ -92,6 +119,7 @@ async fn connect_once(
     token_file: &str,
     upstream: &str,
     identity: &mut Option<Identity>,
+    dashboards: Arc<Dashboards>,
 ) -> Result<(), enrol::EnrolError> {
     if identity.is_none() {
         // Read per attempt, so a rotated token is picked up without a restart.
@@ -112,9 +140,10 @@ async fn connect_once(
     let tls = enrol::connect(relay, server_name, roots, Some(id)).await?;
     tracing::info!(%relay, "tunnel established, serving queries");
     Server::builder()
-        .add_service(ConnectorServer::new(QueryService::new(Prometheus::new(
-            upstream,
-        ))))
+        .add_service(ConnectorServer::new(QueryService::new(
+            Prometheus::new(upstream),
+            dashboards,
+        )))
         .serve_with_incoming(one_connection(tls))
         .await
         .map_err(|e| enrol::EnrolError::Transport(e.to_string()))
@@ -134,13 +163,17 @@ fn read_token(path: &str) -> Result<String, enrol::EnrolError> {
 
 /// Without a relay address the connector serves a plain listener, which is how
 /// the query path is exercised on its own.
-async fn listen_locally(upstream: &str) -> Result<(), Box<dyn std::error::Error>> {
+async fn listen_locally(
+    upstream: &str,
+    dashboards: Arc<Dashboards>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let addr = env_or("VEDAVID_LISTEN", DEFAULT_LISTEN).parse()?;
     tracing::info!(%addr, %upstream, "serving Connector on a local listener");
     Server::builder()
-        .add_service(ConnectorServer::new(QueryService::new(Prometheus::new(
-            upstream,
-        ))))
+        .add_service(ConnectorServer::new(QueryService::new(
+            Prometheus::new(upstream),
+            dashboards,
+        )))
         .serve_with_shutdown(addr, async {
             let _ = tokio::signal::ctrl_c().await;
             tracing::info!("shutting down");

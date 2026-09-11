@@ -2,23 +2,27 @@
 //! nothing here holds state.
 
 use crate::convert;
+use crate::dashboards::{Dashboards, TreeError};
 use crate::pb::{
     connector_server::Connector, ConnectorEvent, DownsampleInfo, DrainRequest, DrainResponse,
-    EventsRequest, InstallCertificateRequest, InstallCertificateResponse, InstantQueryRequest,
-    LabelValuesRequest, LabelValuesResponse, LabelsRequest, LabelsResponse, PanelResult,
-    QueryError, QueryErrorKind, QueryResult, RangeQueryRequest, SeriesRequest, SeriesResponse,
+    EventsRequest, GetRenderTreeRequest, InstallCertificateRequest, InstallCertificateResponse,
+    InstantQueryRequest, LabelValuesRequest, LabelValuesResponse, LabelsRequest, LabelsResponse,
+    PanelResult, QueryError, QueryErrorKind, QueryResult, RangeQueryRequest, RenderTree,
+    SeriesRequest, SeriesResponse,
 };
 use crate::prom::Prometheus;
+use std::sync::Arc;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Code, Request, Response, Status};
 
 pub struct QueryService {
     prom: Prometheus,
+    dashboards: Arc<Dashboards>,
 }
 
 impl QueryService {
-    pub fn new(prom: Prometheus) -> Self {
-        Self { prom }
+    pub fn new(prom: Prometheus, dashboards: Arc<Dashboards>) -> Self {
+        Self { prom, dashboards }
     }
 }
 
@@ -141,11 +145,57 @@ impl Connector for QueryService {
 
     type EventsStream = ReceiverStream<Result<ConnectorEvent, Status>>;
 
+    /// The inventory is announced on connect and on every change, so the relay
+    /// never polls for it.
     async fn events(
         &self,
         _request: Request<EventsRequest>,
     ) -> Result<Response<Self::EventsStream>, Status> {
-        Err(Status::unimplemented("Events"))
+        let dashboards = self.dashboards.clone();
+        let mut changed = dashboards.subscribe();
+        let (tx, rx) = tokio::sync::mpsc::channel(4);
+
+        tokio::spawn(async move {
+            let announce = |inventory| ConnectorEvent {
+                event: Some(crate::pb::connector_event::Event::Inventory(inventory)),
+            };
+            if tx.send(Ok(announce(dashboards.inventory()))).await.is_err() {
+                return;
+            }
+            loop {
+                match changed.recv().await {
+                    Ok(()) => {
+                        if tx.send(Ok(announce(dashboards.inventory()))).await.is_err() {
+                            return;
+                        }
+                    }
+                    // The current inventory is all the relay needs.
+                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                        if tx.send(Ok(announce(dashboards.inventory()))).await.is_err() {
+                            return;
+                        }
+                    }
+                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                }
+            }
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    /// Never-compiled and unknown are conditions the app answers differently.
+    async fn get_render_tree(
+        &self,
+        request: Request<GetRenderTreeRequest>,
+    ) -> Result<Response<RenderTree>, Status> {
+        let id = request.into_inner().id;
+        match self.dashboards.render_tree(&id) {
+            Ok(tree) => Ok(Response::new(tree)),
+            Err(TreeError::Unknown) => Err(Status::not_found(format!("no dashboard `{id}`"))),
+            Err(TreeError::NeverCompiled) => Err(Status::failed_precondition(format!(
+                "`{id}` has never compiled, so there is no render tree to serve"
+            ))),
+        }
     }
 
     async fn install_certificate(

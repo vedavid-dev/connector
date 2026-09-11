@@ -1,0 +1,12 @@
+version: 1
+id: node-health
+title: Node health
+elements:
+  - type: stat
+    title: Nodes ready
+    query: sum(kube_node_status_condition{condition="Ready",status="true"})
+    unit: count
+  - type: line
+    title: Load average
+    query: sum(node_load1)
+    unit: short
