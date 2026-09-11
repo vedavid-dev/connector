@@ -2,13 +2,13 @@
 //! nothing here holds state.
 
 use crate::convert;
-use crate::dashboards::Dashboards;
+use crate::dashboards::{Dashboards, TreeError};
 use crate::pb::{
-    connector_server::Connector, ConnectorEvent, DashboardDocumentRequest,
-    DashboardDocumentResponse, DownsampleInfo, DrainRequest, DrainResponse, EventsRequest,
-    InstallCertificateRequest, InstallCertificateResponse, InstantQueryRequest, LabelValuesRequest,
-    LabelValuesResponse, LabelsRequest, LabelsResponse, PanelResult, QueryError, QueryErrorKind,
-    QueryResult, RangeQueryRequest, SeriesRequest, SeriesResponse,
+    connector_server::Connector, ConnectorEvent, DownsampleInfo, DrainRequest, DrainResponse,
+    EventsRequest, GetRenderTreeRequest, InstallCertificateRequest, InstallCertificateResponse,
+    InstantQueryRequest, LabelValuesRequest, LabelValuesResponse, LabelsRequest, LabelsResponse,
+    PanelResult, QueryError, QueryErrorKind, QueryResult, RangeQueryRequest, RenderTree,
+    SeriesRequest, SeriesResponse,
 };
 use crate::prom::Prometheus;
 use std::sync::Arc;
@@ -183,14 +183,18 @@ impl Connector for QueryService {
         Ok(Response::new(ReceiverStream::new(rx)))
     }
 
-    async fn dashboard_document(
+    /// Never-compiled and unknown are conditions the app answers differently.
+    async fn get_render_tree(
         &self,
-        request: Request<DashboardDocumentRequest>,
-    ) -> Result<Response<DashboardDocumentResponse>, Status> {
+        request: Request<GetRenderTreeRequest>,
+    ) -> Result<Response<RenderTree>, Status> {
         let id = request.into_inner().id;
-        match self.dashboards.document(&id) {
-            Some(doc) => Ok(Response::new(doc)),
-            None => Err(Status::not_found(format!("no render tree for `{id}`"))),
+        match self.dashboards.render_tree(&id) {
+            Ok(tree) => Ok(Response::new(tree)),
+            Err(TreeError::Unknown) => Err(Status::not_found(format!("no dashboard `{id}`"))),
+            Err(TreeError::NeverCompiled) => Err(Status::failed_precondition(format!(
+                "`{id}` has never compiled, so there is no render tree to serve"
+            ))),
         }
     }
 

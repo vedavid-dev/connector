@@ -18,8 +18,7 @@ async fn serve(base: &str) -> ConnectorClient<tonic::transport::Channel> {
     let svc = ConnectorServer::new(QueryService::new(
         Prometheus::new(base),
         std::sync::Arc::new(vedavid_connector::dashboards::Dashboards::new(
-            "/nonexistent",
-            "",
+            vedavid_connector::dashboards::Config::default(),
         )),
     ));
     tokio::spawn(async move {

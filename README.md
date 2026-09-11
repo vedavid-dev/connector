@@ -17,7 +17,7 @@ but the relay it talks to is not running anywhere yet.
 | `RangeQuery` | `/api/v1/query_range`, with the step derived from a point budget |
 | `Labels`, `LabelValues`, `Series` | the matching `/api/v1` endpoints |
 | `Events` | announces the dashboard inventory |
-| `DashboardDocument` | serves one compiled dashboard |
+| `GetRenderTree` | serves one compiled dashboard |
 
 `BatchQuery`, `InstallCertificate` and `Drain` return `Unimplemented`. `Events`
 carries only the inventory so far — not the heartbeat that would let the relay
@@ -36,13 +36,31 @@ Each file is compiled with
 render tree, which is held in memory and announced to the relay.
 
 ```
-VEDAVID_DASHBOARD_DIR    default /etc/vedavid/dashboards
-VEDAVID_CLUSTER_LABEL    shown in the app beside each dashboard
+VEDAVID_DASHBOARD_DIR           default /etc/vedavid/dashboards
+VEDAVID_DASHBOARD_POLL_SECONDS  default 30
+VEDAVID_DASHBOARD_SOURCES       names of the projected objects, counted not read
+VEDAVID_DASHBOARD_BUILTINS      false drops the embedded defaults
+VEDAVID_DASHBOARDS_ENABLED      false turns the whole feature off
+VEDAVID_CLUSTER_LABEL           shown in the app beside each dashboard
+VEDAVID_MAX_DASHBOARDS          default 100
+VEDAVID_MAX_DASHBOARD_BYTES     default 262144
+VEDAVID_MAX_DIRECTORY_BYTES     default 4194304
 ```
 
-Two dashboards are compiled into the binary, so the app works on first install
-with no YAML written. A mounted file with the same `id` replaces the built-in
-of that name; the `id` comes from inside the document, never from the filename.
+A connector that could serve no dashboard at all — the feature enabled, no
+sources, built-ins off — refuses to start. That is a misconfiguration rather
+than a degraded mode. No sources with built-ins on is the first-install state
+and is fine.
+
+Two dashboards are compiled into the binary by `build.rs` — as render trees,
+not as YAML parsed at startup, so a built-in that stops compiling breaks this
+repository's build rather than a customer's pod. A mounted file with the same
+`id` replaces the built-in of that name.
+
+The `id` comes from inside the document, never from the filename. Two files
+declaring the same `id` admit neither and report both: filename order is not
+identity, so using it as a tiebreak would make behaviour depend on something
+that carries no meaning.
 
 ### Mounting the ConfigMap
 
@@ -53,9 +71,14 @@ Three constraints, each of which silently stops updates arriving:
 - **A ConfigMap caps at about 1 MiB**, which is the real ceiling on how many
   dashboards one connector can serve.
 
-The directory is re-read on a 30-second poll rather than watched: a ConfigMap
-update lands as an atomic symlink swap, which `inotify` on a file path misses,
-and kubelet's own propagation delay is larger than the poll interval anyway.
+The directory — not any file in it — is watched, because a ConfigMap update
+lands as an atomic symlink swap that `inotify` on a file path would miss.
+Events are coalesced over 500 ms so one swap causes one scan, and a poll runs
+unconditionally alongside the watch: a missed event is a dashboard that never
+updates again, and that failure would be silent.
+
+See `examples/dashboards/` for the source side of this — a `kustomization.yaml`
+to copy, with the two settings that otherwise fail silently.
 
 ### When a dashboard fails to compile
 
@@ -71,10 +94,20 @@ Each dashboard is announced as one of:
 | `stale` | serving the last good tree; the newest source failed |
 | `failed` | never compiled, so there is nothing to serve |
 
-`stale` and `failed` carry the compiler's diagnostic, so the app can say what
+`stale` and `failed` carry the compiler's diagnostics, so the app can say what
 is wrong rather than only that something is. CI validates the same YAML, but
 CI's compiler and the deployed connector's compiler are two different programs
 at two different versions, so compile failures do reach production.
+
+The inventory also reports `mounted_sources_seen` and `files_scanned`. A
+configured source that delivered no files is the one failure this design cannot
+otherwise show: the chart mounts one name, the customer's generator produced
+another, every layer reports success, and the connector quietly serves built-ins
+alone.
+
+Three limits bound what a scan will accept: 100 dashboards, 256 KiB per file,
+and 4 MiB across the directory. Exceeding the directory limit aborts the scan
+and keeps the previous inventory rather than emptying it.
 
 ## Running it
 

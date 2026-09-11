@@ -39,17 +39,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let upstream = env_or("VEDAVID_PROMETHEUS_URL", DEFAULT_PROMETHEUS);
 
     // Built once, so reconnecting to the relay does not recompile anything.
-    let dashboards = Arc::new(Dashboards::new(
-        dashboards::dir_from_env(),
-        dashboards::cluster_label_from_env(),
-    ));
+    let config = dashboards::Config::from_env();
+    if let Err(why) = config.validate() {
+        return Err(why.into());
+    }
+    if config.cluster_label.is_empty() {
+        tracing::warn!("no clusterLabel is set; the app cannot name this cluster");
+    }
+    let poll = config.poll;
+    let dir = config.path.clone();
+    let dashboards = Arc::new(Dashboards::new(config));
     dashboards.scan();
     tracing::info!(
-        dir = %dashboards.path().display(),
-        dashboards = dashboards.inventory().dashboards.len(),
+        dir = %dir.display(),
+        dashboards = dashboards.inventory().entries.len(),
         "dashboards compiled"
     );
-    tokio::spawn(dashboards.clone().poll_forever(dashboards::DEFAULT_POLL));
+    tokio::spawn(dashboards::watch(dashboards.clone(), poll));
 
     match std::env::var("VEDAVID_RELAY_ADDR") {
         Ok(relay) => tunnel_forever(&relay, &upstream, dashboards).await,

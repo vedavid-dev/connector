@@ -41,7 +41,7 @@ service Connector {
   rpc Series(SeriesRequest)             returns (SeriesResponse);
 
   rpc Events(EventsRequest)                         returns (stream ConnectorEvent);
-  rpc DashboardDocument(DashboardDocumentRequest)   returns (DashboardDocumentResponse);
+  rpc GetRenderTree(GetRenderTreeRequest)           returns (RenderTree);
   rpc InstallCertificate(InstallCertificateRequest) returns (InstallCertificateResponse);
   rpc Drain(DrainRequest)                           returns (DrainResponse);
 }
@@ -180,9 +180,13 @@ message DrainResponse {}
 
 // Announced on connect and on every change, so the relay never polls.
 message DashboardInventory {
-  string cluster_label            = 1;  // from the connector's Helm values
-  int64  generation               = 2;  // monotonic per connector process
-  repeated DashboardEntry dashboards = 3;
+  uint64 generation    = 1;  // monotonic per connector, ++ on every change
+  string cluster_label = 2;  // from the chart's values
+  repeated DashboardEntry entries = 3;
+  // Configured sources against files actually found: (1, 0) is a chart and a
+  // generator that disagree on a name, which is otherwise silent.
+  uint32 mounted_sources_seen = 4;
+  uint32 files_scanned        = 5;
 }
 
 message DashboardEntry {
@@ -192,7 +196,8 @@ message DashboardEntry {
   DashboardSource source = 4;
   uint32 schema = 5;  // render tree schema version
   DashboardStatus status = 6;
-  DashboardDiagnostic error = 7;  // unset unless the last compile failed
+  repeated DashboardDiagnostic diagnostics = 7;
+  uint32 diagnostics_truncated = 8;
 }
 
 enum DashboardSource {
@@ -215,13 +220,13 @@ message DashboardDiagnostic {
   string path    = 3;  // "elements[0].query"
 }
 
-message DashboardDocumentRequest { string id = 1; }
+message GetRenderTreeRequest { string id = 1; }
 
-// The render tree as compiled, carried as JSON because the relay and the app
-// both treat it as opaque data.
-message DashboardDocumentResponse {
-  string id            = 1;
-  string hash          = 2;
-  uint32 schema        = 3;
-  bytes  render_tree   = 4;
+// Pulled on cache miss rather than pushed, so a tenant holding 100 dashboards
+// does not move 100 trees when a phone opens one.
+message RenderTree {
+  string id     = 1;
+  string hash   = 2;
+  uint32 schema = 3;
+  bytes  json   = 4;
 }

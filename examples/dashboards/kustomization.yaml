@@ -1,0 +1,13 @@
+# Copy this directory into your own repository and point Flux or Argo at it.
+#
+# The generated name must equal the connector chart's dashboards.sources[0],
+# and the hash suffix must stay off: a suffixed name would not match the name
+# the chart mounts, and the connector would silently serve built-ins only.
+generatorOptions:
+  disableNameSuffixHash: true
+
+configMapGenerator:
+  - name: vedavid-dashboards
+    files:
+      # Each dashboard is listed: kustomize does not expand globs here.
+      - checkout-api.yaml

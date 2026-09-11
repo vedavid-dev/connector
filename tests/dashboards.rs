@@ -2,7 +2,7 @@
 //! real directory.
 
 use std::path::PathBuf;
-use vedavid_connector::dashboards::Dashboards;
+use vedavid_connector::dashboards::{Config, Dashboards, Limits};
 use vedavid_connector::pb;
 
 struct Dir(PathBuf);
@@ -24,7 +24,18 @@ impl Dir {
     }
 
     fn store(&self) -> Dashboards {
-        Dashboards::new(self.0.clone(), "test-cluster")
+        self.store_with(|_| {})
+    }
+
+    fn store_with(&self, tweak: impl FnOnce(&mut Config)) -> Dashboards {
+        let mut config = Config {
+            path: self.0.clone(),
+            cluster_label: "test-cluster".into(),
+            sources: vec!["vedavid-dashboards".into()],
+            ..Config::default()
+        };
+        tweak(&mut config);
+        Dashboards::new(config)
     }
 }
 
@@ -35,7 +46,7 @@ impl Drop for Dir {
 }
 
 fn entry<'a>(inv: &'a pb::DashboardInventory, id: &str) -> &'a pb::DashboardEntry {
-    inv.dashboards
+    inv.entries
         .iter()
         .find(|d| d.id == id)
         .unwrap_or_else(|| panic!("{id} is not in the inventory"))
@@ -77,16 +88,20 @@ elements:
 
 #[test]
 fn built_ins_are_served_with_no_mounted_directory_at_all() {
-    let store = Dashboards::new("/nonexistent/vedavid/dashboards", "");
+    let store = Dashboards::new(Config {
+        path: "/nonexistent/vedavid/dashboards".into(),
+        sources: vec!["vedavid-dashboards".into()],
+        ..Config::default()
+    });
     store.scan();
     let inv = store.inventory();
-    assert!(!inv.dashboards.is_empty(), "built-ins should still load");
+    assert!(!inv.entries.is_empty(), "built-ins should still load");
     assert!(inv
-        .dashboards
+        .entries
         .iter()
         .all(|d| d.source == pb::DashboardSource::Builtin as i32));
     assert!(inv
-        .dashboards
+        .entries
         .iter()
         .all(|d| d.status == pb::DashboardStatus::Ok as i32));
 }
@@ -105,9 +120,9 @@ fn a_mounted_file_is_added_and_its_tree_is_held() {
     assert_eq!(e.schema, 1);
     assert!(!e.hash.is_empty());
 
-    let doc = store.document("team-api").expect("a held render tree");
+    let doc = store.render_tree("team-api").expect("a held render tree");
     assert_eq!(doc.hash, e.hash);
-    let json: serde_json::Value = serde_json::from_slice(&doc.render_tree).expect("valid JSON");
+    let json: serde_json::Value = serde_json::from_slice(&doc.json).expect("valid JSON");
     assert_eq!(json["id"], "team-api");
     assert_eq!(json["sections"][0]["elements"][0]["type"], "stat");
 }
@@ -124,10 +139,7 @@ fn a_mounted_file_replaces_a_built_in_of_the_same_id() {
     assert_eq!(e.title, "Node health, ours");
     assert_eq!(e.source, pb::DashboardSource::Mounted as i32);
     assert_eq!(
-        inv.dashboards
-            .iter()
-            .filter(|d| d.id == "node-health")
-            .count(),
+        inv.entries.iter().filter(|d| d.id == "node-health").count(),
         1,
         "the built-in is replaced, not duplicated"
     );
@@ -149,8 +161,8 @@ fn a_file_that_stops_compiling_keeps_serving_its_last_good_tree() {
     let e = entry(&inv, "team-api");
     assert_eq!(e.status, pb::DashboardStatus::Stale as i32);
     assert_eq!(e.hash, good_hash, "the last good tree is still served");
-    assert_eq!(e.error.as_ref().expect("a diagnostic").code, "E-010");
-    assert!(store.document("team-api").is_some());
+    assert_eq!(e.diagnostics[0].code, "E-010");
+    assert!(store.render_tree("team-api").is_ok());
 }
 
 #[test]
@@ -163,8 +175,8 @@ fn a_file_that_never_compiled_is_reported_as_failed_with_no_tree() {
     let inv = store.inventory();
     let e = entry(&inv, "team-api");
     assert_eq!(e.status, pb::DashboardStatus::Failed as i32);
-    assert_eq!(e.error.as_ref().expect("a diagnostic").code, "E-010");
-    assert!(store.document("team-api").is_none());
+    assert_eq!(e.diagnostics[0].code, "E-010");
+    assert!(store.render_tree("team-api").is_err());
 }
 
 /// Failure granularity is per dashboard.
@@ -218,7 +230,7 @@ fn the_generation_advances_only_on_a_real_change() {
         store.inventory().generation > second,
         "a removed file is a change"
     );
-    assert!(store.document("team-api").is_none());
+    assert!(store.render_tree("team-api").is_err());
 }
 
 #[test]
@@ -243,7 +255,7 @@ fn a_file_too_malformed_to_name_itself_is_ignored_rather_than_guessed_at() {
         pb::DashboardStatus::Ok as i32
     );
     assert!(
-        inv.dashboards.iter().all(|d| d.id != "junk"),
+        inv.entries.iter().all(|d| d.id != "junk"),
         "the filename is not used as an id"
     );
 }
@@ -272,9 +284,185 @@ fn status_reports_what_the_app_needs_to_say_three_of_four_loaded() {
 
     let inv = store.inventory();
     let ok = inv
-        .dashboards
+        .entries
         .iter()
         .filter(|d| d.status == pb::DashboardStatus::Ok as i32)
         .count();
-    assert_eq!(ok, inv.dashboards.len() - 1);
+    assert_eq!(ok, inv.entries.len() - 1);
+}
+
+/// Filename order carries no meaning here.
+#[test]
+fn two_files_declaring_one_id_admit_neither_and_name_both() {
+    let dir = Dir::new("duplicate");
+    dir.write("a.yaml", GOOD);
+    dir.write("b.yaml", &GOOD.replace("Team API", "Team API elsewhere"));
+    let store = dir.store();
+    store.scan();
+
+    let inv = store.inventory();
+    let e = entry(&inv, "team-api");
+    assert_eq!(e.status, pb::DashboardStatus::Failed as i32);
+    let message = &e.diagnostics[0].message;
+    assert!(message.contains("a.yaml"), "{message}");
+    assert!(message.contains("b.yaml"), "{message}");
+    assert!(store.render_tree("team-api").is_err());
+}
+
+/// The counters are the only signal for a chart and generator name mismatch.
+#[test]
+fn counters_expose_a_mount_that_delivered_nothing() {
+    let dir = Dir::new("counters");
+    let store = dir.store();
+    store.scan();
+
+    let inv = store.inventory();
+    assert_eq!(inv.mounted_sources_seen, 1, "one source is configured");
+    assert_eq!(inv.files_scanned, 0, "and it delivered nothing");
+    assert!(!inv.entries.is_empty(), "built-ins are still served");
+
+    dir.write("team-api.yaml", GOOD);
+    store.scan();
+    assert_eq!(store.inventory().files_scanned, 1);
+}
+
+#[test]
+fn a_file_larger_than_its_limit_is_rejected_without_disturbing_the_others() {
+    let dir = Dir::new("file-size");
+    dir.write("team-api.yaml", GOOD);
+    dir.write("huge.yaml", &format!("{GOOD}# {}\n", "x".repeat(4096)));
+    let store = dir.store_with(|c| {
+        c.limits = Limits {
+            max_dashboard_bytes: 512,
+            ..Limits::default()
+        }
+    });
+    store.scan();
+
+    let inv = store.inventory();
+    assert_eq!(
+        entry(&inv, "team-api").status,
+        pb::DashboardStatus::Ok as i32
+    );
+    assert_eq!(inv.files_scanned, 1, "the oversized file is not scanned");
+}
+
+/// A projection far larger than expected must not empty a working inventory.
+#[test]
+fn a_directory_over_its_limit_retains_the_previous_inventory() {
+    let dir = Dir::new("dir-size");
+    dir.write("team-api.yaml", GOOD);
+    let store = dir.store_with(|c| {
+        c.limits = Limits {
+            max_directory_bytes: 100_000,
+            ..Limits::default()
+        }
+    });
+    store.scan();
+    let before = store.inventory().generation;
+    assert!(store.render_tree("team-api").is_ok());
+
+    dir.write("bulk.yaml", &"# padding\n".repeat(20_000));
+    store.scan();
+
+    let inv = store.inventory();
+    assert_eq!(inv.generation, before, "the scan aborted");
+    assert!(
+        store.render_tree("team-api").is_ok(),
+        "the good tree survives"
+    );
+}
+
+#[test]
+fn more_dashboards_than_the_limit_allows_are_dropped_by_sorted_id() {
+    let dir = Dir::new("count-limit");
+    for n in 0..6 {
+        dir.write(
+            &format!("d{n}.yaml"),
+            &GOOD.replace("id: team-api", &format!("id: dash-{n}")),
+        );
+    }
+    let store = dir.store_with(|c| {
+        c.builtins = false;
+        c.limits = Limits {
+            max_dashboards: 3,
+            ..Limits::default()
+        };
+    });
+    store.scan();
+
+    let inv = store.inventory();
+    assert_eq!(inv.entries.len(), 3);
+    let ids: Vec<&str> = inv.entries.iter().map(|e| e.id.as_str()).collect();
+    assert_eq!(ids, ["dash-0", "dash-1", "dash-2"]);
+}
+
+#[test]
+fn built_ins_can_be_turned_off_entirely() {
+    let dir = Dir::new("no-builtins");
+    dir.write("team-api.yaml", GOOD);
+    let store = dir.store_with(|c| c.builtins = false);
+    store.scan();
+
+    let inv = store.inventory();
+    assert_eq!(inv.entries.len(), 1);
+    assert_eq!(inv.entries[0].id, "team-api");
+}
+
+/// A connector that could serve nothing at all is a misconfiguration.
+#[test]
+fn a_configuration_that_can_serve_nothing_is_refused() {
+    let bad = Config {
+        builtins: false,
+        sources: vec![],
+        ..Config::default()
+    };
+    assert!(bad.validate().is_err());
+
+    let first_install = Config {
+        builtins: true,
+        sources: vec![],
+        ..Config::default()
+    };
+    assert!(
+        first_install.validate().is_ok(),
+        "no dashboards yet is fine"
+    );
+
+    let disabled = Config {
+        enabled: false,
+        builtins: false,
+        sources: vec![],
+        ..Config::default()
+    };
+    assert!(disabled.validate().is_ok());
+}
+
+#[test]
+fn the_cluster_label_falls_back_to_something_identifying() {
+    let dir = Dir::new("fallback-label");
+    let store = dir.store_with(|c| c.cluster_label = String::new());
+    store.scan();
+    assert_eq!(store.inventory().cluster_label, "");
+
+    store.set_fallback_label("22222222");
+    assert_eq!(store.inventory().cluster_label, "22222222");
+}
+
+/// Built-ins are compiled by build.rs, so their trees are present without any
+/// YAML being parsed at startup.
+#[test]
+fn built_in_trees_are_embedded_already_compiled() {
+    let store = Dashboards::new(Config {
+        path: "/nonexistent".into(),
+        ..Config::default()
+    });
+    store.scan();
+    let tree = store
+        .render_tree("cluster-health")
+        .expect("a built-in tree");
+    assert!(!tree.hash.is_empty());
+    assert_eq!(tree.schema, 1);
+    let json: serde_json::Value = serde_json::from_slice(&tree.json).unwrap();
+    assert_eq!(json["id"], "cluster-health");
 }
