@@ -33,14 +33,14 @@ data:
         done
       done
 
-      # Every 20s, per service: one slow request, one 500, one panic — about
-      # 1-2% of total traffic in this window, matching the ~0.5-2% target.
+      # Every 20s, per service: one slow request and one 500, which is about
+      # 1-2% of traffic in this window. Never /panic: it terminates podinfo
+      # rather than returning an error.
       if [ $((i % 20)) -eq 0 ]; then
         for entry in $services; do
           name=${entry%%:*}
           hit "http://$name.workload.svc.cluster.local:9898/delay/2"
           hit "http://$name.workload.svc.cluster.local:9898/status/500"
-          hit "http://$name.workload.svc.cluster.local:9898/panic"
         done
       fi
 
