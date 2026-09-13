@@ -3,7 +3,7 @@
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tonic::transport::server::Connected;
 
@@ -95,8 +95,51 @@ fn rand_ms() -> u32 {
     nanos % 1000
 }
 
+const DEFAULT_SILENCE_SECONDS: u64 = 120;
+
+/// The relay pings every 30s, so silence past this is a tunnel that is gone.
+pub fn silence() -> Duration {
+    Duration::from_secs(
+        std::env::var("VEDAVID_SILENCE_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(DEFAULT_SILENCE_SECONDS),
+    )
+}
+
+/// Ends the process so the orchestrator restarts it with a fresh tunnel.
+pub async fn exit_when_silent(heard: std::sync::Arc<std::sync::Mutex<Instant>>) -> ! {
+    let deadline = silence();
+    loop {
+        let quiet = {
+            let last = *heard.lock().expect("the clock is never poisoned");
+            Instant::now().saturating_duration_since(last)
+        };
+        if quiet >= deadline {
+            tracing::error!(
+                seconds = quiet.as_secs(),
+                "the relay stopped reaching us; exiting to be restarted"
+            );
+            std::process::exit(1);
+        }
+        tokio::time::sleep(deadline - quiet).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// The chart sets this, so it has to be read from the environment.
+    #[test]
+    fn the_silence_deadline_is_configurable() {
+        std::env::set_var("VEDAVID_SILENCE_SECONDS", "7");
+        assert_eq!(super::silence(), Duration::from_secs(7));
+        std::env::set_var("VEDAVID_SILENCE_SECONDS", "0");
+        assert_eq!(super::silence().as_secs(), super::DEFAULT_SILENCE_SECONDS);
+        std::env::remove_var("VEDAVID_SILENCE_SECONDS");
+        assert_eq!(super::silence().as_secs(), super::DEFAULT_SILENCE_SECONDS);
+    }
+
     use super::*;
 
     #[test]

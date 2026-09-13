@@ -42,6 +42,10 @@ service Connector {
 
   rpc Events(EventsRequest)                         returns (stream ConnectorEvent);
   rpc GetRenderTree(GetRenderTreeRequest)           returns (RenderTree);
+
+  // Called on a schedule. A black-holed tunnel looks established to both ends,
+  // so this is what proves it still carries traffic.
+  rpc Ping(PingRequest)                             returns (PingResponse);
   rpc InstallCertificate(InstallCertificateRequest) returns (InstallCertificateResponse);
   rpc Drain(DrainRequest)                           returns (DrainResponse);
 }
@@ -219,6 +223,9 @@ message DashboardDiagnostic {
   string message = 2;
   string path    = 3;  // "elements[0].query"
 }
+
+message PingRequest {}
+message PingResponse { google.protobuf.Timestamp answered_at = 1; }
 
 message GetRenderTreeRequest { string id = 1; }
 

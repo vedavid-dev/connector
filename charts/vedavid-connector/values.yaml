@@ -1,6 +1,5 @@
 image:
   repository: ghcr.io/vedavid-dev/vedavid-connector
-  # Defaults to the chart's appVersion.
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -16,11 +15,13 @@ enrolment:
   secretName: vedavid-enrolment-token
   secretKey: token
 
+# Silence from the relay for this long means the tunnel is gone.
+silenceSeconds: 120
+
 prometheus:
   url: http://prometheus-server.monitoring.svc.cluster.local
 
-# Shown in the app beside each dashboard. A tenant with several clusters
-# cannot tell them apart without it.
+# Shown in the app beside each dashboard.
 clusterLabel: ""
 
 dashboards:
@@ -29,8 +30,7 @@ dashboards:
   pollSeconds: 30
   # Vedavid's own dashboards, compiled into the binary.
   builtins: true
-  # Projected into one directory, in order. A ConfigMap named here must exist
-  # under exactly this name, or the connector serves built-ins alone.
+  # A ConfigMap named here must exist under exactly this name.
   sources:
     - configMap: vedavid-dashboards
 

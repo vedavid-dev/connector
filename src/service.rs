@@ -7,22 +7,40 @@ use crate::pb::{
     connector_server::Connector, ConnectorEvent, DownsampleInfo, DrainRequest, DrainResponse,
     EventsRequest, GetRenderTreeRequest, InstallCertificateRequest, InstallCertificateResponse,
     InstantQueryRequest, LabelValuesRequest, LabelValuesResponse, LabelsRequest, LabelsResponse,
-    PanelResult, QueryError, QueryErrorKind, QueryResult, RangeQueryRequest, RenderTree,
-    SeriesRequest, SeriesResponse,
+    PanelResult, PingRequest, PingResponse, QueryError, QueryErrorKind, QueryResult,
+    RangeQueryRequest, RenderTree, SeriesRequest, SeriesResponse,
 };
 use crate::prom::Prometheus;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Code, Request, Response, Status};
 
 pub struct QueryService {
     prom: Prometheus,
     dashboards: Arc<Dashboards>,
+    heard_from_relay: Arc<Mutex<Instant>>,
 }
 
 impl QueryService {
     pub fn new(prom: Prometheus, dashboards: Arc<Dashboards>) -> Self {
-        Self { prom, dashboards }
+        Self {
+            prom,
+            dashboards,
+            heard_from_relay: Arc::new(Mutex::new(Instant::now())),
+        }
+    }
+
+    /// When the relay last reached this connector at all.
+    pub fn heard_from_relay(&self) -> Arc<Mutex<Instant>> {
+        self.heard_from_relay.clone()
+    }
+
+    fn heard(&self) {
+        *self
+            .heard_from_relay
+            .lock()
+            .expect("the clock is never poisoned") = Instant::now();
     }
 }
 
@@ -184,6 +202,19 @@ impl Connector for QueryService {
     }
 
     /// Never-compiled and unknown are conditions the app answers differently.
+    async fn ping(&self, _request: Request<PingRequest>) -> Result<Response<PingResponse>, Status> {
+        self.heard();
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default();
+        Ok(Response::new(PingResponse {
+            answered_at: Some(prost_types::Timestamp {
+                seconds: now.as_secs() as i64,
+                nanos: now.subsec_nanos() as i32,
+            }),
+        }))
+    }
+
     async fn get_render_tree(
         &self,
         request: Request<GetRenderTreeRequest>,

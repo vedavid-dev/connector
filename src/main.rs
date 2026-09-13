@@ -6,7 +6,7 @@ use vedavid_connector::pb::connector_server::ConnectorServer;
 use vedavid_connector::pb::ConnectorBuild;
 use vedavid_connector::prom::Prometheus;
 use vedavid_connector::service::QueryService;
-use vedavid_connector::tunnel::{backoff, one_connection};
+use vedavid_connector::tunnel::{self, backoff, one_connection};
 
 const DEFAULT_LISTEN: &str = "127.0.0.1:50051";
 const DEFAULT_PROMETHEUS: &str = "http://127.0.0.1:9090";
@@ -139,14 +139,14 @@ async fn connect_once(
 
     let tls = enrol::connect(relay, server_name, roots, Some(id)).await?;
     tracing::info!(%relay, "tunnel established, serving queries");
-    Server::builder()
-        .add_service(ConnectorServer::new(QueryService::new(
-            Prometheus::new(upstream),
-            dashboards,
-        )))
+    let service = QueryService::new(Prometheus::new(upstream), dashboards);
+    let watchdog = tokio::spawn(tunnel::exit_when_silent(service.heard_from_relay()));
+    let served = Server::builder()
+        .add_service(ConnectorServer::new(service))
         .serve_with_incoming(one_connection(tls))
-        .await
-        .map_err(|e| enrol::EnrolError::Transport(e.to_string()))
+        .await;
+    watchdog.abort();
+    served.map_err(|e| enrol::EnrolError::Transport(e.to_string()))
 }
 
 /// A trailing newline is the usual shape of a mounted secret.
