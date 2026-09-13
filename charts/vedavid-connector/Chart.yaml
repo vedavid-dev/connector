@@ -2,6 +2,7 @@ apiVersion: v2
 name: vedavid-connector
 description: Answers PromQL queries from inside your cluster, over a connection it dials out
 type: application
+# Both are replaced from the git tag when CI publishes the chart.
 version: 0.1.0
 appVersion: "v0.4.0"
 sources:
