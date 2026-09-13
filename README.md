@@ -145,6 +145,9 @@ and exists to exercise the query path on its own — bind it to loopback.
 
 `RUST_LOG` controls logging.
 
+A cluster running this alongside Prometheus, end to end, lives at
+[`vedavid-dev/demo-connector`](https://github.com/vedavid-dev/demo-connector).
+
 ## Enrolment
 
 The private key is generated in this process and never leaves it. The request
