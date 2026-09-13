@@ -95,6 +95,12 @@ fn rand_ms() -> u32 {
     nanos % 1000
 }
 
+/// Ends the process so the orchestrator restarts it with a fresh tunnel.
+pub fn lost(why: &str) -> ! {
+    tracing::error!(%why, "the tunnel is gone; exiting to be restarted");
+    std::process::exit(1)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

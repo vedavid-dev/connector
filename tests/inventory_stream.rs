@@ -222,3 +222,40 @@ async fn a_directory_event_triggers_a_rescan_without_waiting_for_the_poll() {
     }
     panic!("the watcher never noticed the new file");
 }
+
+/// The relay calls a connector gone when heartbeats stop.
+#[tokio::test]
+async fn heartbeats_arrive_on_a_stream_with_no_inventory_changes() {
+    std::env::set_var("VEDAVID_HEARTBEAT_SECONDS", "1");
+    let dir = temp_dir("heartbeat");
+    let store = Arc::new(Dashboards::new(Config {
+        path: dir.clone(),
+        ..Config::default()
+    }));
+    store.scan();
+
+    let mut client = serve(store).await;
+    let mut stream = client
+        .events(EventsRequest::default())
+        .await
+        .unwrap()
+        .into_inner();
+
+    let first = stream.message().await.unwrap().unwrap();
+    assert!(
+        matches!(first.event, Some(Event::Inventory(_))),
+        "the inventory still comes first"
+    );
+
+    // The only event a silent tunnel can produce.
+    let beat = tokio::time::timeout(Duration::from_secs(20), stream.message())
+        .await
+        .expect("a heartbeat within the interval")
+        .unwrap()
+        .unwrap();
+    let Some(Event::Heartbeat(h)) = beat.event else {
+        panic!("expected a heartbeat, got {:?}", beat.event);
+    };
+    assert!(h.sent_at.is_some_and(|t| t.seconds > 0));
+    let _ = std::fs::remove_dir_all(&dir);
+}

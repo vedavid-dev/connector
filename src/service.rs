@@ -3,6 +3,7 @@
 
 use crate::convert;
 use crate::dashboards::{Dashboards, TreeError};
+use crate::pb;
 use crate::pb::{
     connector_server::Connector, ConnectorEvent, DownsampleInfo, DrainRequest, DrainResponse,
     EventsRequest, GetRenderTreeRequest, InstallCertificateRequest, InstallCertificateResponse,
@@ -12,8 +13,40 @@ use crate::pb::{
 };
 use crate::prom::Prometheus;
 use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Code, Request, Response, Status};
+
+const DEFAULT_HEARTBEAT_SECONDS: u64 = 30;
+
+/// Often enough that the relay can call a connector gone within a couple of
+/// minutes, and cheap enough to be free.
+fn heartbeat_interval() -> Duration {
+    Duration::from_secs(
+        std::env::var("VEDAVID_HEARTBEAT_SECONDS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .filter(|n| *n > 0)
+            .unwrap_or(DEFAULT_HEARTBEAT_SECONDS),
+    )
+}
+
+fn heartbeat() -> ConnectorEvent {
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default();
+    ConnectorEvent {
+        event: Some(crate::pb::connector_event::Event::Heartbeat(
+            pb::Heartbeat {
+                sent_at: Some(prost_types::Timestamp {
+                    seconds: now.as_secs() as i64,
+                    nanos: now.subsec_nanos() as i32,
+                }),
+                cert_not_after: None,
+            },
+        )),
+    }
+}
 
 pub struct QueryService {
     prom: Prometheus,
@@ -160,22 +193,26 @@ impl Connector for QueryService {
                 event: Some(crate::pb::connector_event::Event::Inventory(inventory)),
             };
             if tx.send(Ok(announce(dashboards.inventory()))).await.is_err() {
-                return;
+                crate::tunnel::lost("the relay took no inventory");
             }
+            let mut beat = tokio::time::interval(heartbeat_interval());
+            beat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            beat.tick().await;
+
             loop {
-                match changed.recv().await {
-                    Ok(()) => {
-                        if tx.send(Ok(announce(dashboards.inventory()))).await.is_err() {
-                            return;
+                let event = tokio::select! {
+                    _ = beat.tick() => Ok(heartbeat()),
+                    changed = changed.recv() => match changed {
+                        Ok(()) => Ok(announce(dashboards.inventory())),
+                        // The current inventory is all the relay needs.
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+                            Ok(announce(dashboards.inventory()))
                         }
-                    }
-                    // The current inventory is all the relay needs.
-                    Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
-                        if tx.send(Ok(announce(dashboards.inventory()))).await.is_err() {
-                            return;
-                        }
-                    }
-                    Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+                    },
+                };
+                if tx.send(event).await.is_err() {
+                    crate::tunnel::lost("the relay stopped reading events");
                 }
             }
         });

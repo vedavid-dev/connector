@@ -47,6 +47,8 @@ spec:
               value: /etc/vedavid/ca/root_ca.crt
             - name: VEDAVID_ENROLMENT_TOKEN_FILE
               value: /etc/vedavid/enrolment/{{ .Values.enrolment.secretKey }}
+            - name: VEDAVID_HEARTBEAT_SECONDS
+              value: {{ .Values.heartbeatSeconds | quote }}
             - name: VEDAVID_PROMETHEUS_URL
               value: {{ .Values.prometheus.url | quote }}
             - name: VEDAVID_CLUSTER_LABEL
