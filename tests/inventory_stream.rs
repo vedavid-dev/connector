@@ -6,7 +6,9 @@ use std::time::Duration;
 use vedavid_connector::dashboards::{Config, Dashboards};
 use vedavid_connector::pb::connector_client::ConnectorClient;
 use vedavid_connector::pb::connector_server::ConnectorServer;
-use vedavid_connector::pb::{connector_event::Event, EventsRequest, GetRenderTreeRequest};
+use vedavid_connector::pb::{
+    connector_event::Event, EventsRequest, GetRenderTreeRequest, PingRequest,
+};
 use vedavid_connector::prom::Prometheus;
 use vedavid_connector::service::QueryService;
 
@@ -221,4 +223,25 @@ async fn a_directory_event_triggers_a_rescan_without_waiting_for_the_poll() {
         }
     }
     panic!("the watcher never noticed the new file");
+}
+
+/// The relay proves the tunnel carries traffic by calling this, and the
+/// connector notes that it was reached.
+#[tokio::test]
+async fn a_ping_is_answered() {
+    let dir = temp_dir("ping");
+    let store = Arc::new(Dashboards::new(Config {
+        path: dir.clone(),
+        ..Config::default()
+    }));
+    store.scan();
+
+    let mut client = serve(store).await;
+    let answered = client
+        .ping(PingRequest::default())
+        .await
+        .expect("a ping is answered")
+        .into_inner();
+    assert!(answered.answered_at.is_some_and(|t| t.seconds > 0));
+    let _ = std::fs::remove_dir_all(&dir);
 }
