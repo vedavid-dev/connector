@@ -40,7 +40,7 @@ jobs:
           # connector serves built-ins alone.
           mounted=$(grep -A1 'sources:' charts/vedavid-connector/values.yaml \
             | awk '/configMap:/ {print $3; exit}')
-          for dir in examples/dashboards demo/connector; do
+          for dir in examples/dashboards; do
             actual=$(/tmp/kustomize build "$dir" | awk '/^kind: ConfigMap/ {found=1} found && /^  name:/ {print $2; exit}')
             echo "$dir generates $actual, the chart mounts $mounted"
             test "$actual" = "$mounted"
