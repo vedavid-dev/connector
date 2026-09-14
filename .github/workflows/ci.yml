@@ -70,8 +70,8 @@ jobs:
     name: Helm chart
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
-      - uses: azure/setup-helm@v4
+      - uses: actions/checkout@v7
+      - uses: azure/setup-helm@v5
 
       - name: Renders
         run: helm template t charts/vedavid-connector > /tmp/rendered.yaml
@@ -138,7 +138,7 @@ jobs:
       packages: write
     steps:
       - uses: actions/checkout@v7
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@v5
 
       - name: Log in to ghcr
         env:
