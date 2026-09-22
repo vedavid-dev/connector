@@ -8,17 +8,6 @@ use std::time::{Duration, SystemTime};
 use tokio::sync::broadcast;
 use vedavid_dashboard_dsl as dsl;
 
-pub(crate) struct Builtin {
-    pub id: &'static str,
-    pub title: &'static str,
-    pub hash: &'static str,
-    pub schema: u32,
-    pub json: &'static str,
-}
-
-// Compiled by build.rs, so a built-in that stops compiling breaks the build.
-include!(concat!(env!("OUT_DIR"), "/builtins.rs"));
-
 pub const DEFAULT_DIR: &str = "/etc/vedavid/dashboards";
 pub const DEFAULT_POLL: Duration = Duration::from_secs(30);
 const DEBOUNCE: Duration = Duration::from_millis(500);
@@ -49,7 +38,6 @@ pub struct Config {
     pub enabled: bool,
     pub path: PathBuf,
     pub poll: Duration,
-    pub builtins: bool,
     pub cluster_label: String,
     /// Counted, never read: the directory is flat and carries no provenance.
     pub sources: Vec<String>,
@@ -62,7 +50,6 @@ impl Default for Config {
             enabled: true,
             path: DEFAULT_DIR.into(),
             poll: DEFAULT_POLL,
-            builtins: true,
             cluster_label: String::new(),
             sources: Vec::new(),
             limits: Limits::default(),
@@ -87,9 +74,6 @@ impl Config {
                 .map(PathBuf::from)
                 .unwrap_or(d.path),
             poll: Duration::from_secs(num("VEDAVID_DASHBOARD_POLL_SECONDS", d.poll.as_secs())),
-            builtins: std::env::var("VEDAVID_DASHBOARD_BUILTINS")
-                .map(|v| v != "false")
-                .unwrap_or(d.builtins),
             cluster_label: std::env::var("VEDAVID_CLUSTER_LABEL").unwrap_or_default(),
             sources: std::env::var("VEDAVID_DASHBOARD_SOURCES")
                 .map(|v| {
@@ -118,10 +102,9 @@ impl Config {
     /// A connector that could serve no dashboard at all is a misconfiguration,
     /// not a degraded mode.
     pub fn validate(&self) -> Result<(), String> {
-        if self.enabled && !self.builtins && self.sources.is_empty() {
+        if self.enabled && self.sources.is_empty() {
             return Err(
-                "dashboards.enabled is true with no sources and builtins disabled, so no \
-                 dashboard could ever be served"
+                "dashboards.enabled is true with no sources, so no dashboard could ever be served"
                     .into(),
             );
         }
@@ -131,7 +114,6 @@ impl Config {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Source {
-    Builtin,
     Mounted,
 }
 
@@ -365,24 +347,6 @@ impl Dashboards {
         held: &BTreeMap<String, Entry>,
     ) -> BTreeMap<String, Entry> {
         let mut out = BTreeMap::new();
-        if self.config.builtins {
-            for b in BUILTINS {
-                out.insert(
-                    b.id.to_string(),
-                    Entry {
-                        id: b.id.to_string(),
-                        title: b.title.to_string(),
-                        hash: b.hash.to_string(),
-                        schema: b.schema,
-                        source: Source::Builtin,
-                        status: Status::Ok,
-                        tree_json: Some(b.json.to_string()),
-                        diagnostics: Vec::new(),
-                        diagnostics_truncated: 0,
-                    },
-                );
-            }
-        }
 
         let mut by_id: BTreeMap<String, Vec<(&str, Compiled)>> = BTreeMap::new();
         for (path, yaml) in files {
@@ -536,7 +500,6 @@ fn entry_to_pb(entry: &Entry) -> pb::DashboardEntry {
         title: entry.title.clone(),
         hash: entry.hash.clone(),
         source: match entry.source {
-            Source::Builtin => pb::DashboardSource::Builtin as i32,
             Source::Mounted => pb::DashboardSource::Mounted as i32,
         },
         schema: entry.schema,

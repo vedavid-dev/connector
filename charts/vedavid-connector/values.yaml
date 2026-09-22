@@ -28,8 +28,6 @@ dashboards:
   enabled: true
   path: /etc/vedavid/dashboards
   pollSeconds: 30
-  # Vedavid's own dashboards, compiled into the binary.
-  builtins: true
   # A ConfigMap named here must exist under exactly this name.
   sources:
     - configMap: vedavid-dashboards
