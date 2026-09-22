@@ -39,7 +39,6 @@ render tree, which is held in memory and announced to the relay.
 VEDAVID_DASHBOARD_DIR           default /etc/vedavid/dashboards
 VEDAVID_DASHBOARD_POLL_SECONDS  default 30
 VEDAVID_DASHBOARD_SOURCES       names of the projected objects, counted not read
-VEDAVID_DASHBOARD_BUILTINS      false drops the embedded defaults
 VEDAVID_DASHBOARDS_ENABLED      false turns the whole feature off
 VEDAVID_CLUSTER_LABEL           shown in the app beside each dashboard
 VEDAVID_MAX_DASHBOARDS          default 100
@@ -77,8 +76,10 @@ Events are coalesced over 500 ms so one swap causes one scan, and a poll runs
 unconditionally alongside the watch: a missed event is a dashboard that never
 updates again, and that failure would be silent.
 
-See `examples/dashboards/` for the source side of this — a `kustomization.yaml`
-to copy, with the two settings that otherwise fail silently.
+The `connector/` directory of <https://github.com/vedavid-dev/demo-connector> is
+the source side of this: a `kustomization.yaml` to copy, with the two settings
+that otherwise fail silently — `disableNameSuffixHash: true`, and a generated
+name equal to the chart's `dashboards.sources[0]`.
 
 ### When a dashboard fails to compile
 

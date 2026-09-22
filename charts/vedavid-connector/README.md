@@ -29,12 +29,13 @@ already use, and projected into the connector as files.
 
 The ConfigMap must be named exactly what `dashboards.sources` says. It is an
 unchecked string on both sides: if the names disagree, Flux and Argo both
-report success and the connector quietly serves only its built-in dashboards.
+report success and the connector quietly serves nothing.
 Check `files_scanned` in the app if dashboards do not appear.
 
 If you generate the ConfigMap with kustomize, set
 `generatorOptions.disableNameSuffixHash: true` — a hashed name will not match
-what this chart mounts. See `examples/dashboards/` in the repository.
+what this chart mounts. The `connector/` directory of
+<https://github.com/vedavid-dev/demo-connector> is a working example.
 
 ## Values worth setting
 

@@ -59,8 +59,6 @@ spec:
               value: {{ .Values.dashboards.path | quote }}
             - name: VEDAVID_DASHBOARD_POLL_SECONDS
               value: {{ .Values.dashboards.pollSeconds | quote }}
-            - name: VEDAVID_DASHBOARD_BUILTINS
-              value: {{ .Values.dashboards.builtins | quote }}
             {{- /* Counted against files found, so a mount that delivered
                    nothing is visible rather than silent. */}}
             - name: VEDAVID_DASHBOARD_SOURCES

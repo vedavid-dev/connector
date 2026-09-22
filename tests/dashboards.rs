@@ -87,26 +87,6 @@ elements:
 ";
 
 #[test]
-fn built_ins_are_served_with_no_mounted_directory_at_all() {
-    let store = Dashboards::new(Config {
-        path: "/nonexistent/vedavid/dashboards".into(),
-        sources: vec!["vedavid-dashboards".into()],
-        ..Config::default()
-    });
-    store.scan();
-    let inv = store.inventory();
-    assert!(!inv.entries.is_empty(), "built-ins should still load");
-    assert!(inv
-        .entries
-        .iter()
-        .all(|d| d.source == pb::DashboardSource::Builtin as i32));
-    assert!(inv
-        .entries
-        .iter()
-        .all(|d| d.status == pb::DashboardStatus::Ok as i32));
-}
-
-#[test]
 fn a_mounted_file_is_added_and_its_tree_is_held() {
     let dir = Dir::new("mounted");
     dir.write("team-api.yaml", GOOD);
@@ -125,24 +105,6 @@ fn a_mounted_file_is_added_and_its_tree_is_held() {
     let json: serde_json::Value = serde_json::from_slice(&doc.json).expect("valid JSON");
     assert_eq!(json["id"], "team-api");
     assert_eq!(json["sections"][0]["elements"][0]["type"], "stat");
-}
-
-#[test]
-fn a_mounted_file_replaces_a_built_in_of_the_same_id() {
-    let dir = Dir::new("override");
-    dir.write("node-health.yaml", OVERRIDE);
-    let store = dir.store();
-    store.scan();
-
-    let inv = store.inventory();
-    let e = entry(&inv, "node-health");
-    assert_eq!(e.title, "Node health, ours");
-    assert_eq!(e.source, pb::DashboardSource::Mounted as i32);
-    assert_eq!(
-        inv.entries.iter().filter(|d| d.id == "node-health").count(),
-        1,
-        "the built-in is replaced, not duplicated"
-    );
 }
 
 /// Requirement 4: a bad merge must not remove a working dashboard.
@@ -195,10 +157,6 @@ fn one_broken_file_does_not_disturb_the_others() {
     );
     assert_eq!(
         entry(&inv, "node-health").status,
-        pb::DashboardStatus::Ok as i32
-    );
-    assert_eq!(
-        entry(&inv, "cluster-health").status,
         pb::DashboardStatus::Ok as i32
     );
 }
@@ -319,7 +277,7 @@ fn counters_expose_a_mount_that_delivered_nothing() {
     let inv = store.inventory();
     assert_eq!(inv.mounted_sources_seen, 1, "one source is configured");
     assert_eq!(inv.files_scanned, 0, "and it delivered nothing");
-    assert!(!inv.entries.is_empty(), "built-ins are still served");
+    assert!(inv.entries.is_empty(), "and there is nothing else to serve");
 
     dir.write("team-api.yaml", GOOD);
     store.scan();
@@ -383,7 +341,6 @@ fn more_dashboards_than_the_limit_allows_are_dropped_by_sorted_id() {
         );
     }
     let store = dir.store_with(|c| {
-        c.builtins = false;
         c.limits = Limits {
             max_dashboards: 3,
             ..Limits::default()
@@ -397,41 +354,23 @@ fn more_dashboards_than_the_limit_allows_are_dropped_by_sorted_id() {
     assert_eq!(ids, ["dash-0", "dash-1", "dash-2"]);
 }
 
-#[test]
-fn built_ins_can_be_turned_off_entirely() {
-    let dir = Dir::new("no-builtins");
-    dir.write("team-api.yaml", GOOD);
-    let store = dir.store_with(|c| c.builtins = false);
-    store.scan();
-
-    let inv = store.inventory();
-    assert_eq!(inv.entries.len(), 1);
-    assert_eq!(inv.entries[0].id, "team-api");
-}
-
 /// A connector that could serve nothing at all is a misconfiguration.
 #[test]
 fn a_configuration_that_can_serve_nothing_is_refused() {
     let bad = Config {
-        builtins: false,
         sources: vec![],
         ..Config::default()
     };
     assert!(bad.validate().is_err());
 
-    let first_install = Config {
-        builtins: true,
-        sources: vec![],
+    let mounted = Config {
+        sources: vec!["vedavid-dashboards".into()],
         ..Config::default()
     };
-    assert!(
-        first_install.validate().is_ok(),
-        "no dashboards yet is fine"
-    );
+    assert!(mounted.validate().is_ok());
 
     let disabled = Config {
         enabled: false,
-        builtins: false,
         sources: vec![],
         ..Config::default()
     };
@@ -447,22 +386,4 @@ fn the_cluster_label_falls_back_to_something_identifying() {
 
     store.set_fallback_label("22222222");
     assert_eq!(store.inventory().cluster_label, "22222222");
-}
-
-/// Built-ins are compiled by build.rs, so their trees are present without any
-/// YAML being parsed at startup.
-#[test]
-fn built_in_trees_are_embedded_already_compiled() {
-    let store = Dashboards::new(Config {
-        path: "/nonexistent".into(),
-        ..Config::default()
-    });
-    store.scan();
-    let tree = store
-        .render_tree("cluster-health")
-        .expect("a built-in tree");
-    assert!(!tree.hash.is_empty());
-    assert_eq!(tree.schema, 1);
-    let json: serde_json::Value = serde_json::from_slice(&tree.json).unwrap();
-    assert_eq!(json["id"], "cluster-health");
 }
