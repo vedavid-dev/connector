@@ -178,13 +178,24 @@ pub fn query_result(
     Ok(QueryResult {
         r#type: result_type as i32,
         series,
-        warnings: env.warnings,
+        warnings: surfaced(env.warnings),
         downsample: downsample.map(|d| DownsampleInfo {
             points_returned,
             ..d
         }),
         upstream_duration_ms,
     })
+}
+
+/// Info annotations are advice to whoever wrote the query, not news for whoever
+/// is on call; the most common one flags every `rate()` over an exporter counter
+/// whose name lacks `_total`. Prometheus versions that return them inside
+/// `warnings` rather than a separate `infos` field are handled by prefix.
+fn surfaced(warnings: Vec<String>) -> Vec<String> {
+    warnings
+        .into_iter()
+        .filter(|w| !w.starts_with("PromQL info:"))
+        .collect()
 }
 
 fn unparsable(e: serde_json::Error) -> QueryError {
@@ -261,6 +272,14 @@ mod tests {
             r.warnings.is_empty(),
             "absent warnings must default to empty"
         );
+    }
+
+    #[test]
+    fn info_annotations_are_not_surfaced_but_warnings_are() {
+        let body = r#"{"status":"success","data":{"resultType":"vector","result":[]},"warnings":["PromQL info: metric might not be a counter, name does not end in _total/_sum/_count/_bucket: \"pg_stat_database_tup_fetched\" (1:24)","PromQL warning: encountered a mix of histograms and floats for metric name \"x\""]}"#;
+        let r = query_result(body, 0, None).unwrap();
+        assert_eq!(r.warnings.len(), 1);
+        assert!(r.warnings[0].starts_with("PromQL warning:"));
     }
 
     #[test]
