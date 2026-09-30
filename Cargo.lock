@@ -1990,7 +1990,7 @@ dependencies = [
 [[package]]
 name = "vedavid-dashboard-dsl"
 version = "0.1.0"
-source = "git+https://github.com/vedavid-dev/dashboard-dsl?rev=4a2ee083e56963c52da9fc13c4c60c970537fa19#4a2ee083e56963c52da9fc13c4c60c970537fa19"
+source = "git+https://github.com/vedavid-dev/dashboard-dsl?rev=dd9ba246e93080d85418758fc0af1d12d5188ad8#dd9ba246e93080d85418758fc0af1d12d5188ad8"
 dependencies = [
  "serde",
  "serde_json",
