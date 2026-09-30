@@ -130,6 +130,7 @@ pub enum Status {
 pub struct Entry {
     pub id: String,
     pub title: String,
+    pub tags: Vec<String>,
     pub hash: String,
     pub schema: u32,
     pub source: Source,
@@ -368,6 +369,7 @@ impl Dashboards {
                     Entry {
                         id: id.clone(),
                         title: String::new(),
+                        tags: Vec::new(),
                         hash: String::new(),
                         schema: 0,
                         source: Source::Mounted,
@@ -453,6 +455,7 @@ fn entry_from(id: String, compiled: Compiled, held: &BTreeMap<String, Entry>) ->
         return Entry {
             id: tree.id.clone(),
             title: tree.title.clone(),
+            tags: tree.tags.clone(),
             hash: tree.hash.clone(),
             schema: tree.schema,
             source: Source::Mounted,
@@ -475,6 +478,7 @@ fn entry_from(id: String, compiled: Compiled, held: &BTreeMap<String, Entry>) ->
         _ => Entry {
             id,
             title: String::new(),
+            tags: Vec::new(),
             hash: String::new(),
             schema: 0,
             source: Source::Mounted,
@@ -498,6 +502,7 @@ fn entry_to_pb(entry: &Entry) -> pb::DashboardEntry {
     pb::DashboardEntry {
         id: entry.id.clone(),
         title: entry.title.clone(),
+        tags: entry.tags.clone(),
         hash: entry.hash.clone(),
         source: match entry.source {
             Source::Mounted => pb::DashboardSource::Mounted as i32,

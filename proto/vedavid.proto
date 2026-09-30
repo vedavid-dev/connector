@@ -202,6 +202,7 @@ message DashboardEntry {
   DashboardStatus status = 6;
   repeated DashboardDiagnostic diagnostics = 7;
   uint32 diagnostics_truncated = 8;
+  repeated string tags = 9;
 }
 
 enum DashboardSource {

@@ -24,7 +24,7 @@ serde_json = "1"
 thiserror = "2"
 notify = { version = "8", default-features = false, features = ["macos_fsevent"] }
 # Pinned by commit: the crate is not published yet.
-vedavid-dashboard-dsl = { git = "https://github.com/vedavid-dev/dashboard-dsl", rev = "4a2ee083e56963c52da9fc13c4c60c970537fa19" }
+vedavid-dashboard-dsl = { git = "https://github.com/vedavid-dev/dashboard-dsl", rev = "dd9ba246e93080d85418758fc0af1d12d5188ad8" }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
