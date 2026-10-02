@@ -32,6 +32,13 @@ dashboards:
   sources:
     - configMap: vedavid-dashboards
 
+# Ask answers plain-English questions from the app with dashboards assembled
+# in the relay. Turn it off here, or correct how Ask reads this cluster with
+# signal overrides; both decisions live in your repo. See the chart README.
+ask:
+  enabled: true
+  signals: []
+
 limits:
   maxDashboards: 100
   maxDashboardBytes: 262144

@@ -66,6 +66,8 @@ jobs:
           set -euo pipefail
           ! grep -iE 'kind:[[:space:]]*(Cluster)?Role' /tmp/rendered.yaml
           grep -q 'automountServiceAccountToken: false' /tmp/rendered.yaml
+          helm template t charts/vedavid-connector --set ask.enabled=true > /tmp/ask.yaml
+          ! grep -iE 'kind:[[:space:]]*(Cluster)?Role' /tmp/ask.yaml
 
       - name: Starts before any dashboard exists
         run: |

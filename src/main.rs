@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use tonic::transport::Server;
+use vedavid_connector::ask::AskPolicy;
 use vedavid_connector::dashboards::{self, Dashboards};
 use vedavid_connector::enrol::{self, Bootstrap, Identity};
 use vedavid_connector::pb::connector_server::ConnectorServer;
@@ -46,6 +47,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     if config.cluster_label.is_empty() {
         tracing::warn!("no clusterLabel is set; the app cannot name this cluster");
     }
+    let ask = match AskPolicy::from_env() {
+        Ok(ask) => ask,
+        Err(why) => return Err(why.into()),
+    };
+    ask.log();
     let poll = config.poll;
     let dir = config.path.clone();
     let dashboards = Arc::new(Dashboards::new(config));
@@ -57,18 +63,35 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     );
     tokio::spawn(dashboards::watch(dashboards.clone(), poll));
 
+    let serving = Serving { dashboards, ask };
     match std::env::var("VEDAVID_RELAY_ADDR") {
-        Ok(relay) => tunnel_forever(&relay, &upstream, dashboards).await,
-        Err(_) => listen_locally(&upstream, dashboards).await,
+        Ok(relay) => tunnel_forever(&relay, &upstream, &serving).await,
+        Err(_) => listen_locally(&upstream, &serving).await,
     }
 }
 
 /// Enrol, dial, serve, repeat. A disconnection is routine: every relay deploy
 /// causes one.
+/// What every connection serves, built once at startup.
+struct Serving {
+    dashboards: Arc<Dashboards>,
+    ask: AskPolicy,
+}
+
+impl Serving {
+    fn service(&self, upstream: &str) -> QueryService {
+        QueryService::new(
+            Prometheus::new(upstream),
+            self.dashboards.clone(),
+            self.ask.clone(),
+        )
+    }
+}
+
 async fn tunnel_forever(
     relay: &str,
     upstream: &str,
-    dashboards: Arc<Dashboards>,
+    serving: &Serving,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let server_name = env_or(
         "VEDAVID_RELAY_SERVER_NAME",
@@ -89,7 +112,7 @@ async fn tunnel_forever(
             &token_file,
             upstream,
             &mut identity,
-            dashboards.clone(),
+            serving,
         )
         .await
         {
@@ -119,7 +142,7 @@ async fn connect_once(
     token_file: &str,
     upstream: &str,
     identity: &mut Option<Identity>,
-    dashboards: Arc<Dashboards>,
+    serving: &Serving,
 ) -> Result<(), enrol::EnrolError> {
     if identity.is_none() {
         // Read per attempt, so a rotated token is picked up without a restart.
@@ -139,7 +162,7 @@ async fn connect_once(
 
     let tls = enrol::connect(relay, server_name, roots, Some(id)).await?;
     tracing::info!(%relay, "tunnel established, serving queries");
-    let service = QueryService::new(Prometheus::new(upstream), dashboards);
+    let service = serving.service(upstream);
     let watchdog = tokio::spawn(tunnel::exit_when_silent(service.heard_from_relay()));
     let served = Server::builder()
         .add_service(ConnectorServer::new(service))
@@ -165,15 +188,12 @@ fn read_token(path: &str) -> Result<String, enrol::EnrolError> {
 /// the query path is exercised on its own.
 async fn listen_locally(
     upstream: &str,
-    dashboards: Arc<Dashboards>,
+    serving: &Serving,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let addr = env_or("VEDAVID_LISTEN", DEFAULT_LISTEN).parse()?;
     tracing::info!(%addr, %upstream, "serving Connector on a local listener");
     Server::builder()
-        .add_service(ConnectorServer::new(QueryService::new(
-            Prometheus::new(upstream),
-            dashboards,
-        )))
+        .add_service(ConnectorServer::new(serving.service(upstream)))
         .serve_with_shutdown(addr, async {
             let _ = tokio::signal::ctrl_c().await;
             tracing::info!("shutting down");

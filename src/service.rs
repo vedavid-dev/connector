@@ -1,14 +1,15 @@
 //! The `Connector` service. Every RPC is a translation of one Prometheus call;
 //! nothing here holds state.
 
+use crate::ask::AskPolicy;
 use crate::convert;
 use crate::dashboards::{Dashboards, TreeError};
 use crate::pb::{
-    connector_server::Connector, ConnectorEvent, DownsampleInfo, DrainRequest, DrainResponse,
-    EventsRequest, GetRenderTreeRequest, InstallCertificateRequest, InstallCertificateResponse,
-    InstantQueryRequest, LabelValuesRequest, LabelValuesResponse, LabelsRequest, LabelsResponse,
-    PanelResult, PingRequest, PingResponse, QueryError, QueryErrorKind, QueryResult,
-    RangeQueryRequest, RenderTree, SeriesRequest, SeriesResponse,
+    connector_server::Connector, ConnectorCapabilities, ConnectorEvent, DownsampleInfo,
+    DrainRequest, DrainResponse, EventsRequest, GetRenderTreeRequest, InstallCertificateRequest,
+    InstallCertificateResponse, InstantQueryRequest, LabelValuesRequest, LabelValuesResponse,
+    LabelsRequest, LabelsResponse, PanelResult, PingRequest, PingResponse, QueryError,
+    QueryErrorKind, QueryResult, RangeQueryRequest, RenderTree, SeriesRequest, SeriesResponse,
 };
 use crate::prom::Prometheus;
 use std::sync::{Arc, Mutex};
@@ -19,14 +20,16 @@ use tonic::{Code, Request, Response, Status};
 pub struct QueryService {
     prom: Prometheus,
     dashboards: Arc<Dashboards>,
+    ask: AskPolicy,
     heard_from_relay: Arc<Mutex<Instant>>,
 }
 
 impl QueryService {
-    pub fn new(prom: Prometheus, dashboards: Arc<Dashboards>) -> Self {
+    pub fn new(prom: Prometheus, dashboards: Arc<Dashboards>, ask: AskPolicy) -> Self {
         Self {
             prom,
             dashboards,
+            ask,
             heard_from_relay: Arc::new(Mutex::new(Instant::now())),
         }
     }
@@ -163,13 +166,17 @@ impl Connector for QueryService {
 
     type EventsStream = ReceiverStream<Result<ConnectorEvent, Status>>;
 
-    /// The inventory is announced on connect and on every change, so the relay
-    /// never polls for it.
+    /// Capabilities go first, once, because the relay needs them before it
+    /// answers anything. The inventory follows on connect and on every change,
+    /// so the relay never polls for it.
     async fn events(
         &self,
         _request: Request<EventsRequest>,
     ) -> Result<Response<Self::EventsStream>, Status> {
         let dashboards = self.dashboards.clone();
+        let capabilities = ConnectorCapabilities {
+            ask: Some(self.ask.to_pb()),
+        };
         let mut changed = dashboards.subscribe();
         let (tx, rx) = tokio::sync::mpsc::channel(4);
 
@@ -177,6 +184,14 @@ impl Connector for QueryService {
             let announce = |inventory| ConnectorEvent {
                 event: Some(crate::pb::connector_event::Event::Inventory(inventory)),
             };
+            let first = ConnectorEvent {
+                event: Some(crate::pb::connector_event::Event::Capabilities(
+                    capabilities,
+                )),
+            };
+            if tx.send(Ok(first)).await.is_err() {
+                return;
+            }
             if tx.send(Ok(announce(dashboards.inventory()))).await.is_err() {
                 return;
             }

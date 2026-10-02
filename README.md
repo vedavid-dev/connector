@@ -61,6 +61,23 @@ declaring the same `id` admit neither and report both: filename order is not
 identity, so using it as a tiebreak would make behaviour depend on something
 that carries no meaning.
 
+### Ask
+
+The app can ask a cluster questions in plain English; the relay assembles the
+answer from rules that say which metrics mean "errors" or "latency" here. The
+connector only announces the operator's say: whether Ask is on, and any
+overrides correcting those rules, as the chart's `ask` values. It checks an
+override's shape at startup and refuses to start on a bad one; it does not
+parse PromQL. The chart README documents the override format.
+
+```
+VEDAVID_ASK_ENABLED             default true
+VEDAVID_ASK_SIGNALS             JSON list of overrides, default []
+```
+
+Both travel to the relay once per connection, as the first message on the
+events stream, before the dashboard inventory.
+
 ### Mounting the ConfigMap
 
 Three constraints, each of which silently stops updates arriving:

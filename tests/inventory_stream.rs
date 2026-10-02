@@ -3,6 +3,7 @@
 
 use std::sync::Arc;
 use std::time::Duration;
+use vedavid_connector::ask::AskPolicy;
 use vedavid_connector::dashboards::{Config, Dashboards};
 use vedavid_connector::pb::connector_client::ConnectorClient;
 use vedavid_connector::pb::connector_server::ConnectorServer;
@@ -18,6 +19,7 @@ async fn serve(dashboards: Arc<Dashboards>) -> ConnectorClient<tonic::transport:
     let svc = ConnectorServer::new(QueryService::new(
         Prometheus::new("http://127.0.0.1:1"),
         dashboards,
+        AskPolicy::parse("true", "[]").unwrap(),
     ));
     tokio::spawn(async move {
         tonic::transport::Server::builder()
@@ -72,15 +74,29 @@ async fn the_inventory_arrives_without_being_asked_for() {
         .expect("the events stream opens")
         .into_inner();
 
+    let first = tokio::time::timeout(Duration::from_secs(5), stream.message())
+        .await
+        .expect("an event within five seconds")
+        .expect("no transport error")
+        .expect("an event, not end of stream");
+    let Some(Event::Capabilities(caps)) = first.event else {
+        panic!(
+            "the first event should be the capabilities, got {:?}",
+            first.event
+        );
+    };
+    let ask = caps.ask.expect("an ask policy");
+    assert!(ask.enabled);
+    assert_eq!(ask.signal_overrides_json, "[]");
+
     let event = tokio::time::timeout(Duration::from_secs(5), stream.message())
         .await
         .expect("an event within five seconds")
         .expect("no transport error")
         .expect("an event, not end of stream");
-
     let Some(Event::Inventory(inv)) = event.event else {
         panic!(
-            "the first event should be the inventory, got {:?}",
+            "the second event should be the inventory, got {:?}",
             event.event
         );
     };
@@ -107,6 +123,7 @@ async fn a_change_is_pushed_to_a_stream_already_open() {
         .unwrap()
         .into_inner();
 
+    let _capabilities = stream.message().await.unwrap().unwrap();
     let first = stream.message().await.unwrap().unwrap();
     let Some(Event::Inventory(before)) = first.event else {
         panic!("expected an inventory");

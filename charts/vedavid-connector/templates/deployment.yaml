@@ -63,6 +63,10 @@ spec:
                    nothing is visible rather than silent. */}}
             - name: VEDAVID_DASHBOARD_SOURCES
               value: {{ range $i, $s := .Values.dashboards.sources }}{{ if $i }},{{ end }}{{ $s.configMap | default $s.secret }}{{ end }}
+            - name: VEDAVID_ASK_ENABLED
+              value: {{ .Values.ask.enabled | quote }}
+            - name: VEDAVID_ASK_SIGNALS
+              value: {{ .Values.ask.signals | toJson | quote }}
             - name: VEDAVID_MAX_DASHBOARDS
               value: {{ .Values.limits.maxDashboards | quote }}
             - name: VEDAVID_MAX_DASHBOARD_BYTES

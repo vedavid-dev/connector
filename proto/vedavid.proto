@@ -146,7 +146,20 @@ message ConnectorEvent {
     UpstreamStatus upstream  = 3;
     QueryTelemetry telemetry = 4;
     DashboardInventory inventory = 5;
+    ConnectorCapabilities capabilities = 6;
   }
+}
+
+// Sent once, first on the stream, before any inventory. Configuration is fixed
+// for the pod's life, so there is no change event. A connector that never
+// sends it is treated as Ask enabled with no overrides.
+message ConnectorCapabilities {
+  AskPolicy ask = 1;
+}
+
+message AskPolicy {
+  bool   enabled = 1;
+  string signal_overrides_json = 2;  // the chart's ask.signals, checked for shape only
 }
 
 message Heartbeat {

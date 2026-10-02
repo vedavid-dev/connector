@@ -20,6 +20,7 @@ async fn serve(base: &str) -> ConnectorClient<tonic::transport::Channel> {
         std::sync::Arc::new(vedavid_connector::dashboards::Dashboards::new(
             vedavid_connector::dashboards::Config::default(),
         )),
+        vedavid_connector::ask::AskPolicy::parse("true", "[]").unwrap(),
     ));
     tokio::spawn(async move {
         tonic::transport::Server::builder()
